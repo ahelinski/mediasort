@@ -1,0 +1,224 @@
+"""File Tags Management window (default key: T).
+
+Shows and edits tags for the CURRENT file: a text field for typing a tag,
+a list of recently used tags on the left (arrow-key navigable - selecting
+one fills the text field), and the current file's own tags on the right
+(file-level tags shown plain, timestamp tags shown as "TAG@MM:SS").
+"Tag file" (Enter) assigns the typed tag to the whole file; "Tag
+timestamp" (Shift+Enter) - only shown for videos - assigns it to the
+current playback second. MainWindow is responsible for pausing the video
+before opening this dialog and resuming it after closing.
+"""
+from pathlib import Path
+
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
+    QLineEdit, QPushButton, QLabel, QWidget
+)
+from PySide6.QtCore import Qt, QEvent
+from PySide6.QtGui import QKeyEvent
+
+from .tags_db import MAX_TAG_LENGTH
+
+
+def _format_ts(seconds):
+    seconds = max(int(seconds or 0), 0)
+    m, s = divmod(seconds, 60)
+    return f"{m:02d}:{s:02d}"
+
+
+class TagManagementDialog(QDialog):
+    def __init__(self, current_file, is_video, current_timestamp_sec, settings, tags_db, parent=None):
+        super().__init__(parent)
+        self.current_file = str(current_file)
+        self.is_video = is_video
+        self.current_timestamp_sec = int(current_timestamp_sec or 0)
+        self.settings = settings
+        self.tags_db = tags_db
+        self.changed = False  # True if at least one tag was added this session
+
+        self.setWindowTitle("Tagi pliku")
+        self.resize(600, 480)
+        self.setStyleSheet(
+            "QDialog { background-color: #2b2b2b; color: #eeeeee; } "
+            "QLabel { color: #eeeeee; }"
+        )
+
+        self._build_ui()
+        self._reload_recent_tags()
+        self._reload_file_tags()
+
+    # ------------------------------------------------------------------
+    def _build_ui(self):
+        layout = QVBoxLayout(self)
+
+        info = QLabel(f"Plik: {Path(self.current_file).name}", self)
+        info.setStyleSheet("font-weight: bold; color: #eeeeee;")
+        layout.addWidget(info)
+
+        layout.addWidget(QLabel("Tag:", self))
+        self.tag_edit = QLineEdit(self)
+        self.tag_edit.setMaxLength(MAX_TAG_LENGTH)
+        self.tag_edit.installEventFilter(self)
+        layout.addWidget(self.tag_edit)
+
+        lists_row = QHBoxLayout()
+
+        left_col = QVBoxLayout()
+        left_col.addWidget(QLabel("Ostatnio uzywane tagi:", self))
+        self.recent_list = QListWidget(self)
+        self.recent_list.currentItemChanged.connect(self._on_recent_selected)
+        self.recent_list.installEventFilter(self)
+        left_col.addWidget(self.recent_list)
+        lists_row.addLayout(left_col)
+
+        right_col = QVBoxLayout()
+        right_col.addWidget(QLabel("Tagi biezacego pliku:", self))
+        self.file_tags_list = QListWidget(self)
+        right_col.addWidget(self.file_tags_list)
+        lists_row.addLayout(right_col)
+
+        layout.addLayout(lists_row)
+
+        btn_row = QHBoxLayout()
+        self.tag_file_btn = QPushButton("Tag plik (Enter)", self)
+        self.tag_file_btn.setDefault(True)
+        self.tag_file_btn.clicked.connect(self._tag_file)
+        btn_row.addWidget(self.tag_file_btn)
+
+        self.tag_timestamp_btn = QPushButton("Tag czas (Shift+Enter)", self)
+        self.tag_timestamp_btn.clicked.connect(self._tag_timestamp)
+        self.tag_timestamp_btn.setVisible(self.is_video)
+        btn_row.addWidget(self.tag_timestamp_btn)
+
+        self.close_btn = QPushButton("Zamknij (Esc)", self)
+        self.close_btn.clicked.connect(self.accept)
+        btn_row.addWidget(self.close_btn)
+        layout.addLayout(btn_row)
+
+        hint_text = "Enter: tag plik  |  Esc: zamknij  |  wpisz nowy tag albo wybierz z listy"
+        if self.is_video:
+            hint_text += f"  |  Shift+Enter: tag czas (biezacy: {_format_ts(self.current_timestamp_sec)})"
+        hint = QLabel(hint_text, self)
+        hint.setStyleSheet("color: gray; font-size: 11px;")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.tag_edit.setFocus()
+
+    # ------------------------------------------------------------------
+    def _reload_recent_tags(self):
+        self.recent_list.blockSignals(True)
+        self.recent_list.clear()
+        for name in self.tags_db.recent_assigned_tags():
+            item = QListWidgetItem(name)
+            item.setData(Qt.UserRole, name)
+            self.recent_list.addItem(item)
+        self.recent_list.blockSignals(False)
+
+    def _on_recent_selected(self, current, _previous):
+        if current is not None:
+            self.tag_edit.setText(current.data(Qt.UserRole))
+
+    def _go_to_timestamp(self, ts):
+        self.video_viewer.player.setPosition(int(ts) * 1000)
+
+    def _reload_file_tags(self):
+        self.file_tags_list.clear()
+        for name, ts in self.tags_db.file_tags(self.current_file):
+            text = name if ts is None else f"{name}@{_format_ts(ts)}"
+
+            row_widget = QWidget(self.file_tags_list)
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(6, 2, 6, 2)
+
+            label = QLabel(text, row_widget)
+            label.setStyleSheet("color: #eeeeee;")
+            row_layout.addWidget(label)
+            row_layout.addStretch(1)
+
+            if ts is not None:
+                go_to_ts_link = QPushButton("Show", row_widget)
+                go_to_ts_link.setFlat(True)
+                go_to_ts_link.setCursor(Qt.PointingHandCursor)
+                go_to_ts_link.setStyleSheet(
+                    "QPushButton { color: #ffffff; text-decoration: underline; "
+                    "border: none; background: transparent; padding: 0; }"
+                    "QPushButton:hover { color: #ffb3b3; }"
+                )
+                go_to_ts_link.clicked.connect(lambda _checked=False, n=name, t=ts: self.parent().video_viewer.go_to_timestamp(t))
+                row_layout.addWidget(go_to_ts_link)
+
+            delete_link = QPushButton("Usun", row_widget)
+            delete_link.setFlat(True)
+            delete_link.setCursor(Qt.PointingHandCursor)
+            delete_link.setStyleSheet(
+                "QPushButton { color: #ff8080; text-decoration: underline; "
+                "border: none; background: transparent; padding: 0; }"
+                "QPushButton:hover { color: #ffb3b3; }"
+            )
+            delete_link.clicked.connect(lambda _checked=False, n=name, t=ts: self._remove_tag(n, t))
+            row_layout.addWidget(delete_link)
+
+            item = QListWidgetItem()
+            item.setSizeHint(row_widget.sizeHint())
+            self.file_tags_list.addItem(item)
+            self.file_tags_list.setItemWidget(item, row_widget)
+
+    def _remove_tag(self, name, timestamp_sec):
+        self.tags_db.remove_tag(name, self.current_file, timestamp_sec=timestamp_sec)
+        self.changed = True
+        self._reload_file_tags()
+
+    # ------------------------------------------------------------------
+    # Actions - a tag can only be assigned once per file (or once per
+    # video-second); duplicates are silently ignored by TagsDatabase, no
+    # error message is shown.
+    # ------------------------------------------------------------------
+    def _tag_file(self):
+        name = self.tags_db.normalize_tag(self.tag_edit.text())
+        if not name:
+            return
+        self.tags_db.assign_tag(name, self.current_file)
+        self.changed = True
+        self._reload_recent_tags()
+        self._reload_file_tags()
+
+    def _tag_timestamp(self):
+        if not self.is_video:
+            return
+        name = self.tags_db.normalize_tag(self.tag_edit.text())
+        if not name:
+            return
+        self.tags_db.assign_tag(name, self.current_file, timestamp_sec=self.current_timestamp_sec)
+        self.changed = True
+        self._reload_recent_tags()
+        self._reload_file_tags()
+
+    # ------------------------------------------------------------------
+    # Keyboard handling
+    # ------------------------------------------------------------------
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.KeyPress and isinstance(event, QKeyEvent):
+            if self._handle_key(event):
+                return True
+        return super().eventFilter(obj, event)
+
+    def keyPressEvent(self, event: QKeyEvent):
+        if self._handle_key(event):
+            return
+        super().keyPressEvent(event)
+
+    def _handle_key(self, event: QKeyEvent) -> bool:
+        if event.key() == Qt.Key_Escape:
+            self.accept()
+            return True
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            if event.modifiers() & Qt.ShiftModifier:
+                self._tag_timestamp()
+            else:
+                self._tag_file()
+            return True
+        return False

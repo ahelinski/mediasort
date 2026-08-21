@@ -42,13 +42,27 @@
     ]
   },
   "video_keys": {
-    "seek_forward": [
+    "small_seek_forward": [
       "Right"
     ],
-    "seek_backward": [
+    "small_seek_backward": [
       "Left"
     ],
+    "seek_forward": [
+      "Shift+Right"
+    ],
+    "seek_backward": [
+      "Shift+Left"
+    ],
+    "big_seek_forward": [
+      "Ctrl+Right"
+    ],
+    "big_seek_backward": [
+      "Ctrl+Left"
+    ],
+    "seek_small_seconds": 5,
     "seek_seconds": 15,
+    "seek_big_seconds": 60,
     "toggle_pause": [
       "Space",
       "MouseLeft"

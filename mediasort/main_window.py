@@ -788,12 +788,26 @@ class MainWindow(QMainWindow):
         # key NOT claimed here (e.g. PgDown/PgUp) falls through to the
         # general navigation check below regardless of kind.
         if kind == "video":
+            seconds_small = video_keys.get("seek_small_seconds", 5)
             seconds = video_keys.get("seek_seconds", 15)
-            if matches_any(event, video_keys.get("seek_forward", ["Right"])):
+            seconds_big = video_keys.get("seek_big_seconds", 60)
+            if matches_any(event, video_keys.get("small_seek_forward", ["Right"])):
+                self.video_viewer.seek_seconds(seconds_small)
+                return True
+            if matches_any(event, video_keys.get("small_seek_backward", ["Left"])):
+                self.video_viewer.seek_seconds(-seconds_small)
+                return True
+            if matches_any(event, video_keys.get("seek_forward", ["Shift+Right"])):
                 self.video_viewer.seek_seconds(seconds)
                 return True
-            if matches_any(event, video_keys.get("seek_backward", ["Left"])):
+            if matches_any(event, video_keys.get("seek_backward", ["Shift+Left"])):
                 self.video_viewer.seek_seconds(-seconds)
+                return True
+            if matches_any(event, video_keys.get("big_seek_forward", ["Ctrl+Right"])):
+                self.video_viewer.seek_seconds(seconds_big)
+                return True
+            if matches_any(event, video_keys.get("big_seek_backward", ["Ctrl+Left"])):
+                self.video_viewer.seek_seconds(-seconds_big)
                 return True
             if matches_any(event, video_keys.get("toggle_pause", ["Space", "MouseLeft"])):
                 self.video_viewer.toggle_pause()

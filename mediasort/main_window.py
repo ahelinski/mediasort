@@ -676,10 +676,19 @@ class MainWindow(QMainWindow):
         """Route configurable bindings to the modal dialog, if it has any."""
         if not self._dialog_open or self._active_dialog is None:
             return False
-        if isinstance(self._active_dialog, FileOperationDialog):
-            return self._active_dialog._handle_dialog_key(event, obj)
-        if isinstance(self._active_dialog, (BrowseDialog, TagAssignDialog)):
-            return self._active_dialog._handle_key(event, obj)
+
+        dialog = self._active_dialog
+        # QMessageBox instances (for example, the confirmation to create a
+        # destination folder) are separate top-level windows.  Do not send
+        # their Enter/Escape keys back to the dialog underneath, otherwise
+        # confirming the message box can reopen the same question in a loop.
+        if isinstance(obj, QWidget) and obj.window() is not dialog:
+            return False
+
+        if isinstance(dialog, FileOperationDialog):
+            return dialog._handle_dialog_key(event, obj)
+        if isinstance(dialog, (BrowseDialog, TagAssignDialog)):
+            return dialog._handle_key(event, obj)
         return False
 
     def _is_timestamp_tag_click(self, obj, event=None) -> bool:

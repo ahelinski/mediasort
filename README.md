@@ -175,8 +175,9 @@ dialogu Otworz/Przegladaj (`O`), opisanego w kolejnej sekcji.
   zaznaczona pozycje na liscie. Klikniecie na nim lub `F2` zamienia je w
   edytowalne pole tekstowe z ta sama wartoscia - mozna dowolnie wpisac
   wlasna sciezke:
-  - `Enter` zatwierdza zmiane (etykieta pokazuje wpisana wartosc, a
-    zaznaczenie na liscie pozostaje bez zmian),
+  - `Enter` zatwierdza zmiane i od razu wykonuje domyslna akcje dialogu
+    (kopiowanie albo przeniesienie) z wpisana wartoscia, niezaleznie od
+    zaznaczenia na liscie,
   - `Esc` anuluje edycje (etykieta wraca do poprzedniej wartosci).
   - Po kliknieciu Kopiuj/Przenies system probuje uzyc dokladnie tej
     wartosci jako lokalizacji docelowej - jesli folder nie istnieje,

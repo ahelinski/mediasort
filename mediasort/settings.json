@@ -99,10 +99,14 @@
   },
   "history_max_size": 20,
   "browse_subfolder_depth": 1,
-  "history": [],
+  "history": [
+    "/home/axh/Wideo",
+    "/home/axh/Wideo/TEST2",
+    "/home/axh/Wideo/TEST"
+  ],
   "favourites": [],
-  "last_dialog_mode": "relative",
-  "last_used_location": null,
+  "last_dialog_mode": "history",
+  "last_used_location": "/home/axh/Wideo",
   "image_extensions": [
     ".jpg",
     ".jpeg",

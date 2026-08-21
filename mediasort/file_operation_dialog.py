@@ -124,6 +124,11 @@ class FileOperationDialog(QDialog):
 
         self.location_edit = QLineEdit(self)
         self.location_edit.installEventFilter(self)
+        # Let QLineEdit handle Return itself and react to its dedicated
+        # signal.  This is more reliable than relying on the dialog-level
+        # event filter: Return can otherwise be consumed by the focused
+        # line edit before it reaches the dialog.
+        self.location_edit.returnPressed.connect(self._perform_edited_location)
         self.location_edit.hide()
         layout.addWidget(self.location_edit)
 
@@ -290,6 +295,17 @@ class FileOperationDialog(QDialog):
     def _selected_path(self):
         return self.location_label.text().strip()
 
+    def _destination_path(self):
+        """Return the path the operation must use right now.
+
+        A default dialog button may be activated by Return before Qt has
+        finished committing the active QLineEdit.  In that case the typed
+        value is authoritative; the selected row is only a browsing aid.
+        """
+        if not self.location_edit.isHidden():
+            return self.location_edit.text().strip()
+        return self._selected_path()
+
     # -- custom location editing (F2 / click on the label) ---------------
     def _begin_edit_location(self):
         self.location_edit.setText(self.location_label.text())
@@ -302,6 +318,13 @@ class FileOperationDialog(QDialog):
         self.location_label.setText(self.location_edit.text().strip())
         self._end_edit_location()
         self._refresh_folder_preview()
+
+    def _perform_edited_location(self):
+        """Use the typed path as the destination and run the default action."""
+        if self.location_edit.isHidden():
+            return
+        self._confirm_edit_location()
+        self._perform_default_action()
 
     def _cancel_edit_location(self):
         self._end_edit_location()
@@ -378,7 +401,7 @@ class FileOperationDialog(QDialog):
         else:
             paths_to_process = [self.current_file]
 
-        destination_folder = self._selected_path()
+        destination_folder = self._destination_path()
         if not destination_folder:
             QMessageBox.warning(self, "Blad", "Nie wybrano lokalizacji docelowej.")
             return
@@ -475,13 +498,10 @@ class FileOperationDialog(QDialog):
     def _handle_dialog_key(self, event, focused_obj) -> bool:
         file_dialog_keys = self.settings.get("file_dialog", default={})
 
-        # While actively editing a custom location, only Enter (confirm)
-        # and Escape (cancel) are special - everything else is normal text
-        # editing inside the QLineEdit.
+        # While actively editing a custom location, let QLineEdit process
+        # Enter and emit returnPressed. Escape remains dialog-specific;
+        # every other key is regular text input.
         if not self.location_edit.isHidden() and focused_obj is self.location_edit:
-            if isinstance(event, QKeyEvent) and event.key() in (Qt.Key_Return, Qt.Key_Enter):
-                self._confirm_edit_location()
-                return True
             if matches_any(event, file_dialog_keys.get("cancel", ["Escape"])):
                 self._cancel_edit_location()
                 return True

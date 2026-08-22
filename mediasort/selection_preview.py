@@ -7,7 +7,9 @@ preview of every one of them instead.
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
 from PySide6.QtCore import Qt
 
+from .style import INFO_STYLE, THUMB_STYLE, SELECTION_PREVIEW_STYLE
 from .thumbnails import get_thumbnail
+
 
 THUMB_SIZE = 48
 
@@ -20,7 +22,7 @@ class SelectionPreviewWidget(QWidget):
         layout.setSpacing(4)
 
         self.title_label = QLabel(title, self)
-        self.title_label.setStyleSheet("font-weight: bold; color: #eeeeee;")
+        self.title_label.setStyleSheet(INFO_STYLE)
         layout.addWidget(self.title_label)
 
         self.row = QHBoxLayout()
@@ -35,7 +37,7 @@ class SelectionPreviewWidget(QWidget):
 
         if n == 0:
             empty = QLabel("Brak plikow", self)
-            empty.setStyleSheet("color: gray; font-style: italic;")
+            empty.setStyleSheet(INFO_STYLE)
             self.row.addWidget(empty)
             return
 
@@ -49,9 +51,7 @@ class SelectionPreviewWidget(QWidget):
 
             count_label = QLabel(str(n), self)
             count_label.setAlignment(Qt.AlignCenter)
-            count_label.setStyleSheet(
-                "font-size: 22px; font-weight: bold; color: white; padding: 0 12px;"
-            )
+            count_label.setStyleSheet(SELECTION_PREVIEW_STYLE)
             self.row.addWidget(count_label)
 
             self.row.addWidget(self._make_thumb(last_path, last_kind))
@@ -60,7 +60,7 @@ class SelectionPreviewWidget(QWidget):
         label = QLabel(self)
         label.setFixedSize(THUMB_SIZE, THUMB_SIZE)
         label.setAlignment(Qt.AlignCenter)
-        label.setStyleSheet("background-color: #1a1a1a; border: 1px solid #444;")
+        label.setStyleSheet(THUMB_STYLE)
         label.setPixmap(get_thumbnail(path, kind, THUMB_SIZE))
         label.setToolTip(path)
         return label

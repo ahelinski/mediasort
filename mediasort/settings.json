@@ -41,6 +41,10 @@
       "Alt+T"
     ]
   },
+  "quick_tags": {
+    "1": "TEST_1",
+    "2": "TEST_2"
+  },
   "video_keys": {
     "small_seek_forward": [
       "Right"

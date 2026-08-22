@@ -7,6 +7,7 @@ __pycache__/
 *$py.class
 ms.desktop
 .idea/
+mediasort/tags.db
 
 # C extensions
 *.so

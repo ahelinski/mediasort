@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 
 from .config import Settings
-from .key_utils import matches_any
+from .key_utils import matches_any, matching_trigger
 from .file_scanner import scan_media, kind_for_path
 from .image_viewer import ImageViewer
 from .video_viewer import VideoViewer
@@ -20,6 +20,7 @@ from .tags_db import TagsDatabase
 from .tag_assign_dialog import TagAssignDialog
 from .tag_management_dialog import TagManagementDialog
 from .tag_browse_dialog import TagBrowseDialog
+from .style import INFO_LABEL_STYLE, STYLE, TS_LINK_STYLE, ACTIVE_TS_LINK_STYLE, SELECTION_STYLE
 
 
 def _format_ms(ms):
@@ -52,8 +53,7 @@ class MainWindow(QMainWindow):
         # pages so it stays on top regardless of which page is active.
         self.selection_indicator = QLabel("[x]", self.stack)
         self.selection_indicator.setStyleSheet(
-            "color: #33ff66; background-color: rgba(0, 0, 0, 160); "
-            "font-size: 20px; font-weight: bold; padding: 4px 10px; border-radius: 4px;"
+            SELECTION_STYLE
         )
         self.selection_indicator.adjustSize()
         self.selection_indicator.hide()
@@ -61,18 +61,14 @@ class MainWindow(QMainWindow):
         # Small "filename (x/total)" label, top-left corner. Always shown
         # while a file is loaded.
         self.file_info_label = QLabel(self.stack)
-        self.file_info_label.setStyleSheet(
-            "color: white; background-color: rgba(0, 0, 0, 140); "
-            "font-size: 12px; padding: 2px 8px; border-radius: 3px;"
+        self.file_info_label.setStyleSheet(INFO_LABEL_STYLE
         )
         self.file_info_label.hide()
 
         # Small "mm:ss / mm:ss" timestamp label, top-right corner (below
         # the selection indicator). Only shown while viewing a video.
         self.time_label = QLabel(self.stack)
-        self.time_label.setStyleSheet(
-            "color: white; background-color: rgba(0, 0, 0, 140); "
-            "font-size: 12px; padding: 2px 8px; border-radius: 3px;"
+        self.time_label.setStyleSheet(INFO_LABEL_STYLE
         )
         self.time_label.hide()
         self.video_viewer.player.positionChanged.connect(self._update_time_label)
@@ -389,13 +385,10 @@ class MainWindow(QMainWindow):
     def _set_timestamp_tag_button_active(button, active):
         """Apply the standard timestamp style, optionally emphasizing it."""
         button.setProperty("timestamp_tag_active", active)
-        weight = "font-weight: bold; " if active else ""
-        button.setStyleSheet(
-            "QPushButton { color: white; background-color: rgba(0, 0, 0, 140); "
-            f"font-size: 12px; {weight}padding: 2px 8px; border: none; border-radius: 3px; }}"
-            "QPushButton:hover { background-color: rgba(60, 60, 60, 180); }"
-        )
-
+        if active:
+            button.setStyleSheet(ACTIVE_TS_LINK_STYLE)
+        else:
+            button.setStyleSheet(TS_LINK_STYLE)
     def _update_active_timestamp_tag(self, position_ms):
         """Bold the timestamp interval containing the playback position."""
         if not self._timestamp_tag_buttons:
@@ -754,6 +747,7 @@ class MainWindow(QMainWindow):
         kind = self.current_kind()
         nav_keys = self.settings.get("navigation_keys", default={})
         video_keys = self.settings.get("video_keys", default={})
+        quick_tags = self.settings.get("quick_tags", default={})
 
         if matches_any(event, nav_keys.get("quit", ["Escape"])):
             self.close()
@@ -849,6 +843,12 @@ class MainWindow(QMainWindow):
         if matches_any(event, nav_keys.get("show_browse_tag_dialog", ["Alt+T"])):
             self._open_tag_browse_dialog()
             return True
+
+        # Quick Tags
+        matching_quick_tag = matching_trigger(event, quick_tags.keys())
+        if matching_quick_tag:
+            self.tags_db.assign_tag(quick_tags.get(matching_quick_tag),self.current_path())
+
 
         return False
 

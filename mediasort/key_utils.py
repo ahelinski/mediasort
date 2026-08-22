@@ -139,3 +139,18 @@ def matches_any(event, triggers) -> bool:
     if isinstance(triggers, str):
         triggers = [triggers]
     return any(matches(event, t) for t in triggers)
+
+def matching_trigger(event, triggers) -> str:
+    """Return True if `event` matches any of the given trigger(s).
+
+    `triggers` may be a single string or a list of strings, so both plain
+    single-shortcut settings and multi-shortcut settings work the same way.
+    """
+    if not triggers:
+        return False
+    if isinstance(triggers, str):
+        triggers = [triggers]
+    for t in triggers:
+        if matches(event, t):
+            return t
+    return None

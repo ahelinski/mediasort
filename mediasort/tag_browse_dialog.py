@@ -11,6 +11,7 @@ from PySide6.QtGui import QKeyEvent
 
 from .file_scanner import kind_for_path
 from .selection_preview import SelectionPreviewWidget
+from .style import STYLE
 from .tags_db import MAX_TAG_LENGTH
 
 
@@ -24,11 +25,7 @@ class TagBrowseDialog(QDialog):
 
         self.setWindowTitle("Przegladaj wg tagu")
         self.resize(560, 480)
-        self.setStyleSheet(
-            "QDialog { background-color: #2b2b2b; color: #eeeeee; } "
-            "QLabel { color: #eeeeee; } "
-            "QGroupBox { color: #eeeeee; font-weight: bold; }"
-        )
+        self.setStyleSheet(STYLE)
 
         self._build_ui()
         self._reload_tag_list()

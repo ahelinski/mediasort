@@ -27,6 +27,7 @@ from PySide6.QtGui import QKeyEvent, QMouseEvent
 from .key_utils import matches_any
 from .file_scanner import list_subfolders, scan_media
 from .selection_preview import SelectionPreviewWidget
+from .style import STYLE
 
 PARENT_MARK = "..."
 
@@ -69,12 +70,7 @@ class FileOperationDialog(QDialog):
         # OS theme. Give the whole dialog an explicit, theme-independent
         # dark style so every label stays readable regardless of the
         # system palette.
-        self.setStyleSheet(
-            "QDialog { background-color: #2b2b2b; color: #eeeeee; } "
-            "QLabel { color: #eeeeee; } "
-            "QGroupBox { color: #eeeeee; font-weight: bold; } "
-            "QRadioButton { color: #eeeeee; }"
-        )
+        self.setStyleSheet(STYLE)
 
         self.mode = self.settings.get_last_dialog_mode() or "relative"
         # Directory currently being browsed in "relative" mode.
@@ -105,7 +101,7 @@ class FileOperationDialog(QDialog):
 
     def _build_left_panel(self, layout):
         info = QLabel(f"Plik: {Path(self.current_file).name}", self)
-        info.setStyleSheet("font-weight: bold; color: #eeeeee;")
+        info.setStyleSheet(STYLE)
         layout.addWidget(info)
 
         self.mode_label = QLabel(self)
@@ -115,8 +111,7 @@ class FileOperationDialog(QDialog):
         # click or F2 turns it into an editable field for a custom path.
         self.location_label = ClickableLabel(self)
         self.location_label.setStyleSheet(
-            "padding: 4px 6px; border: 1px solid #555; background-color: #222; "
-            "color: white; border-radius: 3px;"
+            STYLE
         )
         self.location_label.setToolTip("Kliknij lub nacisnij F2, aby recznie edytowac lokalizacje")
         self.location_label.clicked.connect(self._begin_edit_location)

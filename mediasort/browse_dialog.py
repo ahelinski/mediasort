@@ -29,6 +29,7 @@ from PySide6.QtGui import QKeyEvent, QMouseEvent
 
 from .key_utils import matches_any
 from .file_scanner import list_subfolders, scan_media, scan_media_recursive, kind_for_path
+from .style import STYLE
 
 PARENT_MARK = "..."
 
@@ -59,12 +60,7 @@ class BrowseDialog(QDialog):
 
         self.setWindowTitle("Otworz / Przegladaj")
         self.resize(1020, 580)
-        self.setStyleSheet(
-            "QDialog { background-color: #2b2b2b; color: #eeeeee; } "
-            "QLabel { color: #eeeeee; } "
-            "QGroupBox { color: #eeeeee; font-weight: bold; } "
-            "QRadioButton { color: #eeeeee; }"
-        )
+        self.setStyleSheet(STYLE)
 
         self._build_ui()
         self._reload_folder_list()
@@ -119,8 +115,9 @@ class BrowseDialog(QDialog):
 
         self.location_label = ClickableLabel(self)
         self.location_label.setStyleSheet(
-            "padding: 4px 6px; border: 1px solid #555; background-color: #222; "
-            "color: white; border-radius: 3px;"
+            # "padding: 4px 6px; border: 1px solid #555; background-color: #222; "
+            # "color: white; border-radius: 3px;"
+            STYLE
         )
         self.location_label.setToolTip("Kliknij lub nacisnij F2 aby recznie wpisac sciezke")
         self.location_label.clicked.connect(self._begin_edit_location)

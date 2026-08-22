@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
+from .style import STYLE
 from .file_scanner import kind_for_path
 from .key_utils import matches_any
 from .selection_preview import SelectionPreviewWidget
@@ -34,12 +35,7 @@ class TagAssignDialog(QDialog):
 
         self.setWindowTitle("Przypisz tag")
         self.resize(880, 560)
-        self.setStyleSheet(
-            "QDialog { background-color: #2b2b2b; color: #eeeeee; } "
-            "QLabel { color: #eeeeee; } "
-            "QGroupBox { color: #eeeeee; font-weight: bold; } "
-            "QRadioButton { color: #eeeeee; }"
-        )
+        self.setStyleSheet(STYLE)
 
         self._build_ui()
         self._reload_tag_list()
@@ -58,7 +54,7 @@ class TagAssignDialog(QDialog):
 
     def _build_left_panel(self, layout):
         info = QLabel(f"Plik: {Path(self.current_file).name}", self)
-        info.setStyleSheet("font-weight: bold; color: #eeeeee;")
+        info.setStyleSheet(STYLE)
         layout.addWidget(info)
 
         layout.addWidget(QLabel("Tag:", self))

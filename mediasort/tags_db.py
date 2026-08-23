@@ -23,12 +23,14 @@ Schema:
 import sqlite3
 import time
 from pathlib import Path
+from typing import Self
 
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = APP_DIR / "tags.db"
 
 MAX_TAG_LENGTH = 16
 WHOLE_FILE_MARKER = -1
+MAX_FILES_FOR_TAG_COUNTS = 500
 
 
 class TagsDatabase:
@@ -126,6 +128,10 @@ class TagsDatabase:
         )
         self.conn.commit()
 
+    def remove_tag_from_files(self, tag: str, files: list[str]):
+        for file in files:
+            self.remove_tag(tag, file)
+
     # -- queries ----------------------------------------------------------
     def file_tags(self, file_path):
         """Return [(tag_name, timestamp_sec_or_None), ...] for a file,
@@ -154,7 +160,7 @@ class TagsDatabase:
         )
         return cur.fetchone() is not None
 
-    def recent_assigned_tags(self, limit=20):
+    def recent_assigned_tags(self, limit=50):
         cur = self.conn.execute(
             "SELECT name FROM tags WHERE last_assigned_at > 0 ORDER BY last_assigned_at DESC LIMIT ?",
             (limit,),
@@ -195,6 +201,10 @@ class TagsDatabase:
         )
         return [(r["file_path"], self._from_db_timestamp(r["timestamp_sec"])) for r in cur.fetchall()]
 
+    @property
+    def __class__(self) -> type[Self]:
+        return super().__class__
+
     def instance_count_for_tag(self, name):
         return len(self.instances_for_tag(name))
 
@@ -233,6 +243,40 @@ class TagsDatabase:
             (tag_id,),
         )
         return [r["file_path"] for r in cur.fetchall()]
+
+
+
+    def count_tags_for_files(self, files: list[str]) -> dict[str, int]:
+        """Returns a dictionary containing all tags in selected files
+        and their count in selected files
+        Handles up to 200 files to
+
+        :param files: list[str]
+        :return: dict[str, int]
+        """
+        paths = list(dict.fromkeys(map(str, files)))  # normalizacja i usunięcie duplikatów
+
+        if len(paths) > MAX_FILES_FOR_TAG_COUNTS:
+            raise ValueError(
+                f"Można policzyć tagi najwyżej dla {MAX_FILES_FOR_TAG_COUNTS} plików."
+            )
+        if not paths:
+            return {}
+
+        placeholders = ", ".join("?" for _ in paths)
+        cur = self.conn.execute(
+            f"""
+            SELECT t.name, COUNT(distinct a.file_path) AS count
+            FROM tag_assignments AS a
+            JOIN tags AS t ON t.id = a.tag_id
+            WHERE a.file_path IN ({placeholders})
+            GROUP BY a.tag_id, t.name
+            ORDER BY count DESC, t.name COLLATE NOCASE ASC
+            """,
+            paths,
+        )
+        return {row["name"]: row["count"] for row in cur}
+
 
     def retarget_file(self, old_path, new_path):
         """Repoint every tag assignment for `old_path` to `new_path` -

@@ -26,6 +26,8 @@ INFO_STYLE=(
         "color: gray; font-style: italic; "
 )
 
+HINT_STYLE=("color: gray; font-size: 11px;")
+
 INFO_LABEL_STYLE = (
         "color: #fefefe; background-color: rgba(0, 0, 0, 140); "
         "font-size: 12px; padding: 2px 8px; border-radius: 3px;"

@@ -11,11 +11,12 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
-    QLineEdit, QPushButton, QLabel, QGroupBox, QRadioButton, QButtonGroup
+    QLineEdit, QPushButton, QLabel, QGroupBox, QRadioButton, QButtonGroup, QWidget
 )
 from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
+from . import style
 from .style import STYLE
 from .file_scanner import kind_for_path
 from .key_utils import matches_any
@@ -41,13 +42,20 @@ class TagAssignDialog(QDialog):
         self._reload_tag_list()
         self._refresh_selection_ui()
         self._refresh_tag_preview()
-
+        print(self.tags_db.count_tags_for_files(self.selected_paths))
     # ------------------------------------------------------------------
+
     def _build_ui(self):
         outer = QHBoxLayout(self)
         left = QVBoxLayout()
         outer.addLayout(left, 2)
         self._build_left_panel(left)
+
+        middle = QVBoxLayout()
+        outer.addLayout(middle, 2)
+        self._build_middle_panel(middle)
+        self._reload_tags_count()
+
         right = QVBoxLayout()
         outer.addLayout(right, 1)
         self._build_selection_panel(right)
@@ -84,9 +92,23 @@ class TagAssignDialog(QDialog):
             "Enter: przypisz tag  |  Esc: anuluj  |  wpisz nowy tag albo wybierz z listy",
             self,
         )
-        hint.setStyleSheet("color: gray; font-size: 11px;")
+        hint.setStyleSheet(style.HINT_STYLE)
         hint.setWordWrap(True)
         layout.addWidget(hint)
+
+    def _build_middle_panel(self, layout):
+        info = QLabel(f"Selected: {len(self.selected_paths)}", self)
+        # info.setStyleSheet(STYLE)
+        layout.addWidget(info)
+
+        if len(self.selected_paths) > 0:
+            layout.addWidget(QLabel("Tagi odnalezione w zaznaczonych plikach:", self))
+        else:
+            layout.addWidget(QLabel("Tagi odnalezione w bieżącym pliku:", self))
+        self.tag_count_list = QListWidget(self)
+        # self.tag_count_list.currentItemChanged.connect(self._on_tag_selected)
+        self.tag_count_list.installEventFilter(self)
+        layout.addWidget(self.tag_count_list)
 
     def _build_selection_panel(self, layout):
         context_box = QGroupBox("Kontekst operacji", self)
@@ -139,6 +161,42 @@ class TagAssignDialog(QDialog):
             item.setData(Qt.UserRole, name)
             self.tag_list.addItem(item)
         self.tag_list.blockSignals(False)
+
+    def _delete_tag(self, key, files):
+        self.tags_db.remove_tag_from_files(key, files)
+        self._reload_tags_count()
+
+    def _reload_tags_count(self):
+        # self.tag_count_list.blockSignals(True)
+        self.tag_count_list.clear()
+        if len(self.selected_paths) > 0:
+            files = self.selected_paths
+        else:
+            files = [self.current_file]
+        tag_counts = self.tags_db.count_tags_for_files(files)
+
+        for key in tag_counts:
+            row_widget = QWidget(self.tag_count_list)
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(6, 2, 6, 2)
+
+            item = QLabel(f"{key} ({tag_counts[key]})",row_widget)
+            # item.setData(Qt.UserRole, name)
+            row_layout.addWidget(item)
+            row_layout.addStretch(1)
+
+            delete_link = QPushButton("Del", row_widget)
+            delete_link.setFlat(True)
+            # delete_link.setCursor(Qt.PointingHandCursor)
+            delete_link.setStyleSheet(style.DEL_LINK_STYLE)
+            delete_link.clicked.connect(lambda _checked=False, n=key: self._delete_tag(key, files))
+            row_layout.addWidget(delete_link)
+            item = QListWidgetItem()
+            item.setSizeHint(row_widget.sizeHint())
+            self.tag_count_list.addItem(item)
+            self.tag_count_list.setItemWidget(item, row_widget)
+
+        # self.tag_count_list.blockSignals(False)
 
     def _on_tag_selected(self, current, _previous):
         if current is not None:

@@ -8,6 +8,7 @@ __pycache__/
 ms.desktop
 .idea/
 mediasort/tags.db
+mediasort/settings.json
 
 # C extensions
 *.so

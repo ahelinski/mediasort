@@ -85,6 +85,9 @@ class FileOperationDialog(QDialog):
             # covers the edge case where the list has no items at all.
             self._refresh_folder_preview()
 
+    def create(self, /, arg__1: int | None = ..., initializeWindow: bool = ..., destroyOldWindow: bool = ...) -> None:
+        super().create(arg__1, initializeWindow, destroyOldWindow)
+
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
@@ -303,11 +306,10 @@ class FileOperationDialog(QDialog):
 
     # -- custom location editing (F2 / click on the label) ---------------
     def _begin_edit_location(self):
-        self.location_edit.setText(self.location_label.text())
+        self.location_edit.setText(self.location_label.text().strip())
         self.location_label.hide()
         self.location_edit.show()
         self.location_edit.setFocus()
-        self.location_edit.selectAll()
 
     def _confirm_edit_location(self):
         self.location_label.setText(self.location_edit.text().strip())
@@ -325,8 +327,8 @@ class FileOperationDialog(QDialog):
         self._end_edit_location()
 
     def _end_edit_location(self):
-        self.location_edit.hide()
-        self.location_label.show()
+        # self.location_edit.hide()
+        # self.location_label.show()
         self.list_widget.setFocus()
 
     # -- "Folder" preview: contents of the currently selected/edited
@@ -415,10 +417,13 @@ class FileOperationDialog(QDialog):
             return
 
         if not dest_path.exists():
+            self.blockSignals(True)
             answer = QMessageBox.question(
                 self, "Utworzyc folder?",
                 f"Folder '{destination_folder}' nie istnieje. Czy utworzyc?",
+                defaultButton=QMessageBox.StandardButton.Yes
             )
+
             if answer != QMessageBox.Yes:
                 return
             try:
@@ -426,6 +431,7 @@ class FileOperationDialog(QDialog):
             except OSError as e:
                 QMessageBox.critical(self, "Nieprawidlowa sciezka", f"Nie mozna utworzyc folderu: {e}")
                 return
+            self.blockSignals(False)
 
         succeeded = []
         succeeded_targets = {}  # src_str -> target_str, only for action == "move"
@@ -497,6 +503,9 @@ class FileOperationDialog(QDialog):
         # Enter and emit returnPressed. Escape remains dialog-specific;
         # every other key is regular text input.
         if not self.location_edit.isHidden() and focused_obj is self.location_edit:
+            if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+                self._confirm_edit_location()
+                return True
             if matches_any(event, file_dialog_keys.get("cancel", ["Escape"])):
                 self._cancel_edit_location()
                 return True

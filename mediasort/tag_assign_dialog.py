@@ -42,7 +42,6 @@ class TagAssignDialog(QDialog):
         self._reload_tag_list()
         self._refresh_selection_ui()
         self._refresh_tag_preview()
-        print(self.tags_db.count_tags_for_files(self.selected_paths))
     # ------------------------------------------------------------------
 
     def _build_ui(self):

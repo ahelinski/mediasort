@@ -41,32 +41,14 @@
       "Alt+T"
     ]
   },
-  "quick_tags": {
-    "1": "TEST_1",
-    "2": "TEST_2"
-  },
   "video_keys": {
-    "small_seek_forward": [
-      "Right"
-    ],
-    "small_seek_backward": [
-      "Left"
-    ],
     "seek_forward": [
       "Shift+Right"
     ],
     "seek_backward": [
       "Shift+Left"
     ],
-    "big_seek_forward": [
-      "Ctrl+Right"
-    ],
-    "big_seek_backward": [
-      "Ctrl+Left"
-    ],
-    "seek_small_seconds": 5,
     "seek_seconds": 15,
-    "seek_big_seconds": 60,
     "toggle_pause": [
       "Space",
       "MouseLeft"
@@ -78,7 +60,21 @@
     "prev_timestamp_tag": [
       "Q",
       "MouseWheelDown"
-    ]
+    ],
+    "small_seek_forward": [
+      "Right"
+    ],
+    "small_seek_backward": [
+      "Left"
+    ],
+    "big_seek_forward": [
+      "Ctrl+Right"
+    ],
+    "big_seek_backward": [
+      "Ctrl+Left"
+    ],
+    "seek_small_seconds": 5,
+    "seek_big_seconds": 60
   },
   "file_dialog": {
     "copy": [
@@ -118,13 +114,10 @@
   "history_max_size": 20,
   "browse_subfolder_depth": 1,
   "history": [
-    "/home/axh/Wideo",
-    "/home/axh/Wideo/TEST2",
-    "/home/axh/Wideo/TEST"
   ],
   "favourites": [],
-  "last_dialog_mode": "history",
-  "last_used_location": "/home/axh/Wideo",
+  "last_dialog_mode": "relative",
+  "last_used_location": "",
   "image_extensions": [
     ".jpg",
     ".jpeg",
@@ -144,5 +137,9 @@
     ".m4v",
     ".wmv",
     ".flv"
-  ]
+  ],
+  "quick_tags": {
+    "1": "TEST_1",
+    "2": "TEST_2"
+  }
 }

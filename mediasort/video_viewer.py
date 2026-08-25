@@ -225,6 +225,9 @@ class VideoViewer(QGraphicsView):
         else:
             self.player.play()
 
+    def pause(self):
+        self.player.pause()
+
     def is_paused(self):
         return self.player.playbackState() != QMediaPlayer.PlayingState
 

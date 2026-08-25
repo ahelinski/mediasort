@@ -31,6 +31,30 @@ def _format_ms(ms):
     minutes, seconds = divmod(total_seconds, 60)
     return f"{minutes:02d}:{seconds:02d}"
 
+def _pause_video_while_open(f):
+
+    def wrapper(*args, **kwargs):
+        self = args[0]
+        is_video = self.current_kind() == "video"
+
+        # if paused manually (we don't want to resume after closed)
+        was_playing = False
+        if is_video:
+            was_playing = not self.video_viewer.is_paused()
+            if was_playing:
+                self.video_viewer.toggle_pause()
+        #     current_ts = self.video_viewer.player.position() // 1000
+        # else:
+        #     current_ts = 0
+
+        f(*args, **kwargs)
+
+        if is_video and was_playing:
+            self.video_viewer.toggle_pause()
+        if is_video:
+            self._update_timestamp_tags()
+
+    return wrapper
 
 class MainWindow(QMainWindow):
     def __init__(self, folder, settings: Settings, initial_file=None):
@@ -641,13 +665,13 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     def eventFilter(self, obj, event):
         if event.type() == QEvent.KeyPress and isinstance(event, QKeyEvent):
-            if self._handle_active_dialog_input(event, obj):
-                return True
+            # if self._handle_active_dialog_input(event, obj):
+            #     return True
             if self._handle_key_press(event):
                 return True
         elif event.type() == QEvent.MouseButtonPress and isinstance(event, QMouseEvent):
-            if self._handle_active_dialog_input(event, obj):
-                return True
+            # if self._handle_active_dialog_input(event, obj):
+            #     return True
             # Timestamp tags are buttons, so let them receive the click
             # before evaluating MouseLeft as the video's pause shortcut.
             if self._is_timestamp_tag_click(obj, event):
@@ -855,6 +879,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
     # File operation dialog
     # ------------------------------------------------------------------
+    @_pause_video_while_open
     def _open_file_dialog(self, default_action):
         current = self.current_path()
         if not current:
@@ -882,6 +907,7 @@ class MainWindow(QMainWindow):
             self._disable_filter_if_nothing_selected()
             self._update_selection_indicator()
 
+    @_pause_video_while_open
     def _open_browse_dialog(self):
         self._dialog_open = True
         dialog = BrowseDialog(
@@ -898,9 +924,11 @@ class MainWindow(QMainWindow):
         if dialog.confirmed:
             self.browse_custom(dialog.result_items, folder_for_context=dialog.result_folder)
 
+
     # ------------------------------------------------------------------
     # Tags Library
     # ------------------------------------------------------------------
+    @_pause_video_while_open
     def _open_tag_assign_dialog(self):
         current = self.current_path()
         if not current:
@@ -921,17 +949,14 @@ class MainWindow(QMainWindow):
         self._disable_filter_if_nothing_selected()
         self._update_selection_indicator()
 
+
+    @_pause_video_while_open
     def _open_tag_management_dialog(self):
         current = self.current_path()
         if not current:
             return
         is_video = self.current_kind() == "video"
-        # Pause the video while the tags window is open, resume after.
-        was_playing = False
         if is_video:
-            was_playing = not self.video_viewer.is_paused()
-            if was_playing:
-                self.video_viewer.toggle_pause()
             current_ts = self.video_viewer.player.position() // 1000
         else:
             current_ts = 0
@@ -947,12 +972,10 @@ class MainWindow(QMainWindow):
         )
         dialog.exec()
         self._dialog_open = False
-
-        if is_video and was_playing:
-            self.video_viewer.toggle_pause()
         if is_video:
             self._update_timestamp_tags()
 
+    @_pause_video_while_open
     def _open_tag_browse_dialog(self):
         self._dialog_open = True
         dialog = TagBrowseDialog(settings=self.settings, tags_db=self.tags_db, parent=self)

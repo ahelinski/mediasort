@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QPushButton, QLabel, QMessageBox, QGroupBox, QRadioButton,
     QButtonGroup
 )
-from PySide6.QtCore import Qt, QEvent, Signal
+from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
 from .key_utils import matches_any
@@ -30,16 +30,6 @@ from .selection_preview import SelectionPreviewWidget
 from .style import STYLE
 
 PARENT_MARK = "..."
-
-
-class ClickableLabel(QLabel):
-    """A QLabel that emits `clicked` on a left mouse click."""
-    clicked = Signal()
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.clicked.emit()
-        super().mousePressEvent(event)
 
 
 class FileOperationDialog(QDialog):
@@ -110,24 +100,23 @@ class FileOperationDialog(QDialog):
         self.mode_label = QLabel(self)
         layout.addWidget(self.mode_label)
 
-        # Destination display: normally mirrors the selected list item; a
-        # click or F2 turns it into an editable field for a custom path.
-        self.location_label = ClickableLabel(self)
-        self.location_label.setStyleSheet(
-            STYLE
-        )
-        self.location_label.setToolTip("Kliknij lub nacisnij F2, aby recznie edytowac lokalizacje")
-        self.location_label.clicked.connect(self._begin_edit_location)
-        layout.addWidget(self.location_label)
-
+        # Destination path: a permanently visible, editable field.  It
+        # mirrors the selected list item, but the user can type any path
+        # into it; typed edits never propagate back to the list.
         self.location_edit = QLineEdit(self)
+        self.location_edit.setPlaceholderText("Sciezka docelowa...")
+        self.location_edit.setToolTip(
+            "Sciezka docelowa - wybierz folder z listy lub wpisz recznie"
+        )
         self.location_edit.installEventFilter(self)
         # Let QLineEdit handle Return itself and react to its dedicated
         # signal.  This is more reliable than relying on the dialog-level
         # event filter: Return can otherwise be consumed by the focused
         # line edit before it reaches the dialog.
         self.location_edit.returnPressed.connect(self._perform_edited_location)
-        self.location_edit.hide()
+        # Keep the "Folder" preview in sync with whatever the field holds
+        # right now - list selections write into it, manual edits too.
+        self.location_edit.textChanged.connect(lambda _: self._refresh_folder_preview())
         layout.addWidget(self.location_edit)
 
         self.list_widget = QListWidget(self)
@@ -152,7 +141,7 @@ class FileOperationDialog(QDialog):
 
         hint = QLabel(
             "R: widok wzgledny  H: historia  F: ulubione  |  "
-            "F2 / klik na lokalizacji: recznie edytuj sciezke  |  "
+            "F2: edytuj sciezke  |  "
             "Enter: nawiguj folder (w trybie wzglednym) / akcja domyslna  |  "
             "Ctrl+Enter: wykonaj akcje domyslna  |  "
             "Alt+C: kopiuj  Alt+M: przenies  |  "
@@ -242,18 +231,13 @@ class FileOperationDialog(QDialog):
                 if self.list_widget.item(row).data(Qt.UserRole) == select_path:
                     target_row = row
                     break
-        elif self.mode == "favourites":
-            last_used = self.settings.get_last_used_location()
-            if last_used:
-                for row in range(self.list_widget.count()):
-                    if self.list_widget.item(row).data(Qt.UserRole) == last_used:
-                        target_row = row
-                        break
 
         if self.list_widget.count() > 0:
+            # Always select the first folder from the list; its path is
+            # then pushed into the location edit by _on_selection_changed.
             self.list_widget.setCurrentRow(target_row)
         else:
-            self.location_label.clear()
+            self.location_edit.clear()
 
     def _mode_display_name(self):
         return {
@@ -266,9 +250,11 @@ class FileOperationDialog(QDialog):
     # Destination list selection / navigation
     # ------------------------------------------------------------------
     def _on_selection_changed(self, current, _previous):
+        # Picking a list row overwrites whatever the location edit holds
+        # (the list is authoritative while a row is being selected).  The
+        # reverse never happens: manual edits leave the list untouched.
         if current is not None:
-            self.location_label.setText(current.data(Qt.UserRole))
-        self._refresh_folder_preview()
+            self.location_edit.setText(current.data(Qt.UserRole))
 
     def _navigate_or_select(self):
         """In relative mode, descend into (or ascend out of, via '...')
@@ -291,45 +277,29 @@ class FileOperationDialog(QDialog):
         self._reload_list()
 
     def _selected_path(self):
-        return self.location_label.text().strip()
+        """Current destination path.  The location edit is the single
+        source of truth: list selections write into it, manual edits stay
+        in it, and the copy/move always reads it."""
+        return self.location_edit.text().strip()
 
     def _destination_path(self):
         """Return the path the operation must use right now.
 
-        A default dialog button may be activated by Return before Qt has
-        finished committing the active QLineEdit.  In that case the typed
-        value is authoritative; the selected row is only a browsing aid.
+        Always the value currently held by the location edit, whether it
+        came from the list selection or was typed by the user.
         """
-        if not self.location_edit.isHidden():
-            return self.location_edit.text().strip()
         return self._selected_path()
 
-    # -- custom location editing (F2 / click on the label) ---------------
+    # -- custom location editing ----------------------------------------
+    # The location edit is always visible, so "editing" is simply focusing
+    # the field and typing over whatever it currently holds.
     def _begin_edit_location(self):
-        self.location_edit.setText(self.location_label.text().strip())
-        self.location_label.hide()
-        self.location_edit.show()
         self.location_edit.setFocus()
-
-    def _confirm_edit_location(self):
-        self.location_label.setText(self.location_edit.text().strip())
-        self._end_edit_location()
-        self._refresh_folder_preview()
+        self.location_edit.selectAll()
 
     def _perform_edited_location(self):
         """Use the typed path as the destination and run the default action."""
-        if self.location_edit.isHidden():
-            return
-        self._confirm_edit_location()
         self._perform_default_action()
-
-    def _cancel_edit_location(self):
-        self._end_edit_location()
-
-    def _end_edit_location(self):
-        # self.location_edit.hide()
-        # self.location_label.show()
-        self.list_widget.setFocus()
 
     # -- "Folder" preview: contents of the currently selected/edited
     # destination location --------------------------------------------
@@ -499,15 +469,15 @@ class FileOperationDialog(QDialog):
     def _handle_dialog_key(self, event, focused_obj) -> bool:
         file_dialog_keys = self.settings.get("file_dialog", default={})
 
-        # While actively editing a custom location, let QLineEdit process
-        # Enter and emit returnPressed. Escape remains dialog-specific;
-        # every other key is regular text input.
-        if not self.location_edit.isHidden() and focused_obj is self.location_edit:
+        # While the location edit has focus, let QLineEdit process text
+        # input normally.  Enter performs the default action using the
+        # field's current value; Escape cancels the whole dialog.
+        if focused_obj is self.location_edit:
             if event.key() in (Qt.Key_Return, Qt.Key_Enter):
-                self._confirm_edit_location()
+                self._perform_default_action()
                 return True
             if matches_any(event, file_dialog_keys.get("cancel", ["Escape"])):
-                self._cancel_edit_location()
+                self.reject()
                 return True
             return False
 

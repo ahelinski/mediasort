@@ -63,7 +63,7 @@ class MainWindow(QMainWindow):
         self.settings = settings
         self.folder = str(Path(folder).resolve())
         self.setWindowTitle(tr("main_window.title"))
-        self.setStyleSheet(styles.BLACK_BG)
+        self.setStyleSheet(styles.BG)
 
         self.stack = QStackedWidget(self)
         self.setCentralWidget(self.stack)

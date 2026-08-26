@@ -116,7 +116,7 @@ class ProgressBarItem(QGraphicsObject):
 
         opacity = self.HOVER_OPACITY if self._hovered else 1.0
         painter.setOpacity(opacity)
-        painter.fillRect(QRectF(0, 0, w, h), QColor(40, 40, 40))
+        painter.fillRect(QRectF(0, 0, w, h), QColor(*styles.COLOR_PROGRESS_TRACK))
 
         if self._duration_ms <= 0:
             return
@@ -127,9 +127,9 @@ class ProgressBarItem(QGraphicsObject):
         progress = (self._position_ms - self._window_start_ms) / window_len
         progress = max(0.0, min(1.0, progress))
         fill_w = w * progress
-        painter.fillRect(QRectF(0, 0, fill_w, h), QColor(220, 30, 30))
+        painter.fillRect(QRectF(0, 0, fill_w, h), QColor(*styles.COLOR_PROGRESS_FILL))
 
-        painter.setPen(QPen(QColor(255, 255, 255), 2))
+        painter.setPen(QPen(QColor(*styles.COLOR_TEXT_RGB), 2))
         painter.drawLine(int(fill_w), 0, int(fill_w), int(h))
 
     # -- mouse interaction (click / drag to seek) -----------------------
@@ -159,7 +159,7 @@ class VideoViewer(QGraphicsView):
         super().__init__(parent)
         self.settings = settings
 
-        self.setStyleSheet(styles.VIDEO_VIEW)
+        self.setStyleSheet(styles.BG)
         self.setFrameShape(QGraphicsView.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -168,7 +168,7 @@ class VideoViewer(QGraphicsView):
         self.viewport().setMouseTracking(True)
 
         self.scene = QGraphicsScene(self)
-        self.scene.setBackgroundBrush(QBrush(QColor(0, 0, 0)))
+        self.scene.setBackgroundBrush(QBrush(QColor(*styles.COLOR_BG_RGB)))
         self.setScene(self.scene)
 
         self.video_item = QGraphicsVideoItem()

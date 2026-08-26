@@ -10,13 +10,13 @@ from .i18n import tr
 class ImageViewer(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setStyleSheet(styles.BLACK_BG)
+        self.setStyleSheet(styles.BG)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
         self.label = QLabel(self)
         self.label.setAlignment(Qt.AlignCenter)
-        self.label.setStyleSheet(styles.BLACK_BG)
+        self.label.setStyleSheet(styles.BG)
         layout.addWidget(self.label)
 
         self._pixmap = None
@@ -45,7 +45,7 @@ class ImageViewer(QWidget):
             scaled = self._pixmap.scaled(
                 self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
             )
-            self.label.setStyleSheet(styles.BLACK_BG)
+            self.label.setStyleSheet(styles.BG)
             self.label.setPixmap(scaled)
         else:
             self.label.setPixmap(QPixmap())

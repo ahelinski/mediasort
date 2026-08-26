@@ -35,11 +35,10 @@ from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
 from .key_utils import matches_any
-from .file_scanner import list_subfolders, scan_media, scan_media_recursive, kind_for_path
+from .file_scanner import scan_media, scan_media_recursive, kind_for_path
+from .folder_list import FolderListController
 from .i18n import tr, tr_plural
 from . import styles
-
-PARENT_MARK = "..."
 
 # Session-scoped state of the browse dialog: preserved between opens
 # within one app run, discarded when the app exits (never written to
@@ -53,7 +52,6 @@ def _default_session_state(current_folder):
         "browse_folder": True,
         "browse_tag": False,
         "folder_mode": "relative",
-        "relative_dir": str(current_folder),
         "folder_path": "",
         "include_subfolders": False,
         "tag": None,
@@ -77,14 +75,25 @@ class BrowseDialog(QDialog):
         if _SESSION_STATE is not None:
             self._session = dict(_SESSION_STATE)
 
-        self.folder_mode = self._session["folder_mode"]
-        self._relative_dir = self._session["relative_dir"] or self.current_folder
-
         self.setWindowTitle(tr("browse_dialog.title"))
         self.resize(1020, 580)
         self.setStyleSheet(styles.DIALOG)
 
         self._build_ui()
+
+        # Shared folder-list browsing (Relative / History / Favourites).
+        self.folder_list_ctrl = FolderListController(
+            self.folder_list, self.folder_mode_label, self.settings,
+            mode_label_key="browse_dialog.mode_label",
+        )
+        self.folder_list_ctrl.on_select = self._on_folder_selected
+        self.folder_list_ctrl.mode = self._session["folder_mode"]
+        # Relative mode lists the folders at the same level as the current
+        # folder and auto-selects it; restoring a previous folder path
+        # re-points the relative view at that folder.
+        self.folder_list_ctrl.set_context(
+            self._session["folder_path"] or self.current_folder
+        )
 
         # Restore checkbox / option states.  The toggled handlers enable
         # or disable the rest of each panel, so they must run after the
@@ -97,14 +106,7 @@ class BrowseDialog(QDialog):
         self._apply_folder_enabled()
         self._apply_tag_enabled()
 
-        # First open of a fresh app run: folder browsing on, relative mode
-        # rooted at the current folder, and the folder value set to the
-        # current folder itself (no row is pre-selected from the list).
-        first_open = _SESSION_STATE is None
-        self._reload_folder_list(
-            select_path=self._session["folder_path"] or None,
-            auto_select=not first_open,
-        )
+        self.folder_list_ctrl.reload(auto_select=self.browse_folder_cb.isChecked())
         self._reload_tag_list()
         if self._session["tag"]:
             for row in range(self.tag_list.count()):
@@ -188,8 +190,7 @@ class BrowseDialog(QDialog):
         col.addWidget(self.include_subfolders_cb)
 
         self.folder_list = QListWidget(self)
-        self.folder_list.currentItemChanged.connect(self._on_folder_selected)
-        self.folder_list.itemActivated.connect(lambda _: self._navigate_or_select())
+        # Selection change / activation wiring lives in FolderListController.
         self.folder_list.installEventFilter(self)
         col.addWidget(self.folder_list)
 
@@ -247,77 +248,15 @@ class BrowseDialog(QDialog):
             self.radio_both.setFocus()
 
     # ------------------------------------------------------------------
-    # Folder list (Relative / History / Favourites) - same selection
-    # logic as the copy/move dialog: the list feeds the always-editable
-    # location edit, which is the single source of truth.
+    # Folder list (Relative / History / Favourites) - owned by the shared
+    # FolderListController; it feeds the always-editable location edit,
+    # which is the single source of truth.
     # ------------------------------------------------------------------
-    def _current_folder_list(self):
-        if self.folder_mode == "relative":
-            root = Path(self._relative_dir).resolve()
-            items = []
-            if root.parent != root:
-                items.append((PARENT_MARK, str(root.parent)))
-            for p in list_subfolders(root):
-                items.append((Path(p).name, p))
-            return items
-        elif self.folder_mode == "history":
-            return [(p, p) for p in self.settings.get_history()]
-        elif self.folder_mode == "favourites":
-            return [(p, p) for p in self.settings.get_favourites()]
-        return []
-
-    def _reload_folder_list(self, select_path=None, auto_select=True):
-        self.folder_mode_label.setText(tr("browse_dialog.mode_label", mode=self._mode_display_name()))
-        self.folder_list.blockSignals(True)
-        self.folder_list.clear()
-        for text, path in self._current_folder_list():
-            item = QListWidgetItem(text)
-            item.setData(Qt.UserRole, path)
-            if text != PARENT_MARK and self.settings.is_favourite(path):
-                item.setText(f"\u2605 {text}")
-            self.folder_list.addItem(item)
-        self.folder_list.blockSignals(False)
-
-        if select_path:
-            for row in range(self.folder_list.count()):
-                if self.folder_list.item(row).data(Qt.UserRole) == select_path:
-                    self.folder_list.setCurrentRow(row)
-                    break
-        elif auto_select and self.browse_folder_cb.isChecked() and self.folder_list.count() > 0:
-            # After a reload (mode switch / navigation) the first folder
-            # from the list is selected and its path is pushed into the
-            # location edit - same as the copy/move dialog.
-            self.folder_list.setCurrentRow(0)
-
-    def _mode_display_name(self):
-        return {
-            "relative": tr("file_dialog.mode.relative"),
-            "history": tr("file_dialog.mode.history"),
-            "favourites": tr("file_dialog.mode.favourites"),
-        }.get(
-            self.folder_mode, self.folder_mode
-        )
-
-    def _on_folder_selected(self, current, _previous):
+    def _on_folder_selected(self, path):
         # Picking a list row overwrites whatever the location edit holds
         # (the list is authoritative while a row is being selected).  The
         # reverse never happens: manual edits leave the list untouched.
-        if current is not None:
-            self.location_edit.setText(current.data(Qt.UserRole))
-
-    def _navigate_or_select(self):
-        item = self.folder_list.currentItem()
-        if not item or self.folder_mode != "relative":
-            return
-        self._relative_dir = item.data(Qt.UserRole)
-        self._reload_folder_list()
-
-    def _set_folder_mode(self, mode):
-        if mode == self.folder_mode:
-            return
-        self.folder_mode = mode
-        self.settings.set_last_dialog_mode(mode)
-        self._reload_folder_list()
+        self.location_edit.setText(path)
 
     def _clear_folder(self):
         # "Clear" turns folder browsing off - the panel (including this
@@ -501,8 +440,7 @@ class BrowseDialog(QDialog):
         _SESSION_STATE = {
             "browse_folder": self.browse_folder_cb.isChecked(),
             "browse_tag": self.browse_tag_cb.isChecked(),
-            "folder_mode": self.folder_mode,
-            "relative_dir": self._relative_dir,
+            "folder_mode": self.folder_list_ctrl.mode,
             "folder_path": self.location_edit.text().strip(),
             "include_subfolders": self.include_subfolders_cb.isChecked(),
             "tag": self._selected_tag(),
@@ -553,25 +491,23 @@ class BrowseDialog(QDialog):
         # and folder browsing is enabled.
         if focused_obj is not self.tag_list and self.browse_folder_cb.isChecked():
             if matches_any(event, file_dialog_keys.get("mode_relative", ["R"])):
-                self._set_folder_mode("relative")
+                self.folder_list_ctrl.set_mode("relative")
                 return True
             if matches_any(event, file_dialog_keys.get("mode_history", ["H"])):
-                self._set_folder_mode("history")
+                self.folder_list_ctrl.set_mode("history")
                 return True
             if matches_any(event, file_dialog_keys.get("mode_favourites", ["F"])):
-                self._set_folder_mode("favourites")
+                self.folder_list_ctrl.set_mode("favourites")
                 return True
 
         if isinstance(event, QKeyEvent) and event.key() in (Qt.Key_Return, Qt.Key_Enter):
-            item = self.folder_list.currentItem()
             if (
-                self.folder_mode == "relative"
+                self.folder_list_ctrl.mode == "relative"
                 and focused_obj is self.folder_list
-                and item is not None
+                and self.folder_list_ctrl.navigate()
             ):
-                self._navigate_or_select()
-            else:
-                self._confirm()
+                return True
+            self._confirm()
             return True
 
         return False

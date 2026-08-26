@@ -1,11 +1,12 @@
 """File operation (copy/move) dialog.
 
 Left side: shows a list of candidate destination folders in one of three
-modes - Relative (subfolders of the current file's folder), History
-(recently used destinations) or Favourites (user-pinned folders). The
-user can navigate the list with arrow keys, edit the destination path
-directly, and confirm with Copy / Move (or the Enter key, which triggers
-whichever action the dialog was opened for).
+modes - Relative (folders at the same level as the current file's folder,
+with the current folder pre-selected), History (recently used
+destinations) or Favourites (user-pinned folders). The user can navigate
+the list with arrow keys, edit the destination path directly, and confirm
+with Copy / Move (or the Enter key, which triggers whichever action the
+dialog was opened for).
 
 Right side: a multi-file selection panel. The user picks whether the
 operation should apply to the "Zaznaczone" (selected) files or just the
@@ -17,7 +18,7 @@ import shutil
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
+    QDialog, QVBoxLayout, QHBoxLayout, QListWidget,
     QLineEdit, QPushButton, QLabel, QMessageBox, QGroupBox, QRadioButton,
     QButtonGroup
 )
@@ -25,12 +26,11 @@ from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
 from .key_utils import matches_any
-from .file_scanner import list_subfolders, scan_media
+from .file_scanner import scan_media
+from .folder_list import FolderListController
 from .i18n import tr
 from . import styles
 from .selection_preview import SelectionPreviewWidget
-
-PARENT_MARK = "..."
 
 
 class FileOperationDialog(QDialog):
@@ -66,17 +66,24 @@ class FileOperationDialog(QDialog):
         # system palette.
         self.setStyleSheet(styles.DIALOG)
 
-        self.mode = self.settings.get_last_dialog_mode() or "relative"
-        # Directory currently being browsed in "relative" mode.
-        self._relative_dir = str(Path(self.current_file).resolve().parent)
-
         self._build_ui()
-        self._reload_list()
+
+        # Shared folder-list browsing (Relative / History / Favourites).
+        self.folder_list_ctrl = FolderListController(
+            self.list_widget, self.mode_label, self.settings,
+            mode_label_key="file_dialog.mode_label",
+        )
+        self.folder_list_ctrl.on_select = self._on_folder_selected
+        # Relative mode lists the folders at the same level as the current
+        # file's folder and auto-selects the current folder itself.
+        self.folder_list_ctrl.set_context(Path(self.current_file).resolve().parent)
+        self.folder_list_ctrl.reload()
+
         self._refresh_selection_ui()
         if self.list_widget.currentItem() is None:
-            # _reload_list() already triggers _refresh_folder_preview() via
-            # the selection-changed signal when the list is non-empty; this
-            # covers the edge case where the list has no items at all.
+            # A non-empty list already fills the location edit (and with it
+            # the folder preview) via the selection callback; this covers
+            # the edge case where the list has no items at all.
             self._refresh_folder_preview()
 
     def create(self, /, arg__1: int | None = ..., initializeWindow: bool = ..., destroyOldWindow: bool = ...) -> None:
@@ -122,8 +129,7 @@ class FileOperationDialog(QDialog):
         layout.addWidget(self.location_edit)
 
         self.list_widget = QListWidget(self)
-        self.list_widget.currentItemChanged.connect(self._on_selection_changed)
-        self.list_widget.itemActivated.connect(lambda _: self._navigate_or_select())
+        # Selection change / activation wiring lives in FolderListController.
         self.list_widget.installEventFilter(self)
         layout.addWidget(self.list_widget)
 
@@ -188,90 +194,14 @@ class FileOperationDialog(QDialog):
         self.list_widget.setFocus()
 
     # ------------------------------------------------------------------
-    # Destination folder list population (Relative / History / Favourites)
+    # Destination folder list (Relative / History / Favourites) - owned
+    # by the shared FolderListController.
     # ------------------------------------------------------------------
-    def _current_folder_list(self):
-        """Return list of (display_text, actual_path) tuples for the active mode."""
-        if self.mode == "relative":
-            root = Path(self._relative_dir).resolve()
-            items = []
-            if root.parent != root:  # not filesystem root
-                items.append((PARENT_MARK, str(root.parent)))
-            for p in list_subfolders(root):
-                items.append((Path(p).name, p))
-            return items
-        elif self.mode == "history":
-            hist = self.settings.get_history()
-            if not hist:
-                hist = [str(Path(self.current_file).resolve().parent)]
-            return [(p, p) for p in hist]
-        elif self.mode == "favourites":
-            return [(p, p) for p in self.settings.get_favourites()]
-        return []
-
-    def _reload_list(self, select_path=None):
-        self.mode_label.setText(tr("file_dialog.mode_label", mode=self._mode_display_name()))
-        self.list_widget.blockSignals(True)
-        self.list_widget.clear()
-        entries = self._current_folder_list()
-        for text, path in entries:
-            item = QListWidgetItem(text)
-            item.setData(Qt.UserRole, path)
-            if text != PARENT_MARK and self.settings.is_favourite(path):
-                item.setText(f"\u2605 {text}")
-            self.list_widget.addItem(item)
-        self.list_widget.blockSignals(False)
-
-        target_row = 0
-        if select_path:
-            for row in range(self.list_widget.count()):
-                if self.list_widget.item(row).data(Qt.UserRole) == select_path:
-                    target_row = row
-                    break
-
-        if self.list_widget.count() > 0:
-            # Always select the first folder from the list; its path is
-            # then pushed into the location edit by _on_selection_changed.
-            self.list_widget.setCurrentRow(target_row)
-        else:
-            self.location_edit.clear()
-
-    def _mode_display_name(self):
-        return {
-            "relative": tr("file_dialog.mode.relative"),
-            "history": tr("file_dialog.mode.history"),
-            "favourites": tr("file_dialog.mode.favourites"),
-        }.get(self.mode, self.mode)
-
-    # ------------------------------------------------------------------
-    # Destination list selection / navigation
-    # ------------------------------------------------------------------
-    def _on_selection_changed(self, current, _previous):
+    def _on_folder_selected(self, path):
         # Picking a list row overwrites whatever the location edit holds
         # (the list is authoritative while a row is being selected).  The
         # reverse never happens: manual edits leave the list untouched.
-        if current is not None:
-            self.location_edit.setText(current.data(Qt.UserRole))
-
-    def _navigate_or_select(self):
-        """In relative mode, descend into (or ascend out of, via '...')
-        the currently selected folder. This is what lets the user go back
-        into a subfolder after having gone up with '...' - previously
-        Enter only handled the '...' case and otherwise performed the
-        copy/move action, making it impossible to descend again."""
-        item = self.list_widget.currentItem()
-        if not item or self.mode != "relative":
-            return
-        path = item.data(Qt.UserRole)
-        self._relative_dir = path
-        self._reload_list()
-
-    def _set_mode(self, mode):
-        if mode == self.mode:
-            return
-        self.mode = mode
-        self.settings.set_last_dialog_mode(mode)
-        self._reload_list()
+        self.location_edit.setText(path)
 
     def _selected_path(self):
         """Current destination path.  The location edit is the single
@@ -319,7 +249,7 @@ class FileOperationDialog(QDialog):
             self.settings.remove_favourite(path)
         else:
             self.settings.add_favourite(path)
-        self._reload_list(select_path=path)
+        self.folder_list_ctrl.reload(select_path=path)
 
     # ------------------------------------------------------------------
     # Multi-file selection panel
@@ -501,13 +431,13 @@ class FileOperationDialog(QDialog):
             self.reject()
             return True
         if matches_any(event, file_dialog_keys.get("mode_relative", ["R"])):
-            self._set_mode("relative")
+            self.folder_list_ctrl.set_mode("relative")
             return True
         if matches_any(event, file_dialog_keys.get("mode_history", ["H"])):
-            self._set_mode("history")
+            self.folder_list_ctrl.set_mode("history")
             return True
         if matches_any(event, file_dialog_keys.get("mode_favourites", ["F"])):
-            self._set_mode("favourites")
+            self.folder_list_ctrl.set_mode("favourites")
             return True
         if matches_any(event, file_dialog_keys.get("invert_selection", ["I"])):
             self._invert_selection()
@@ -517,14 +447,13 @@ class FileOperationDialog(QDialog):
             return True
 
         if isinstance(event, QKeyEvent) and event.key() in (Qt.Key_Return, Qt.Key_Enter):
-            if self.mode == "relative":
+            if self.folder_list_ctrl.mode == "relative" and self.folder_list_ctrl.navigate():
                 # Descend into (or ascend out of, via '...') the selected
                 # folder instead of performing the copy/move/open action -
                 # this is what lets the user go back down after using
                 # '...' to go up.
-                self._navigate_or_select()
-            else:
-                self._perform_default_action()
+                return True
+            self._perform_default_action()
             return True
 
         return False

@@ -11,6 +11,7 @@ from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 
 from .config import Settings
 from .i18n import tr
+from . import styles
 from .key_utils import matches_any, matching_trigger
 from .file_scanner import scan_media, kind_for_path
 from .image_viewer import ImageViewer
@@ -21,7 +22,6 @@ from .tags_db import TagsDatabase
 from .tag_assign_dialog import TagAssignDialog
 from .tag_management_dialog import TagManagementDialog
 from .tag_browse_dialog import TagBrowseDialog
-from .style import INFO_LABEL_STYLE, STYLE, TS_LINK_STYLE, ACTIVE_TS_LINK_STYLE, SELECTION_STYLE
 
 
 def _format_ms(ms):
@@ -63,7 +63,7 @@ class MainWindow(QMainWindow):
         self.settings = settings
         self.folder = str(Path(folder).resolve())
         self.setWindowTitle(tr("main_window.title"))
-        self.setStyleSheet("background-color: black;")
+        self.setStyleSheet(styles.BLACK_BG)
 
         self.stack = QStackedWidget(self)
         self.setCentralWidget(self.stack)
@@ -78,7 +78,7 @@ class MainWindow(QMainWindow):
         # pages so it stays on top regardless of which page is active.
         self.selection_indicator = QLabel("[x]", self.stack)
         self.selection_indicator.setStyleSheet(
-            SELECTION_STYLE
+            styles.SELECTION
         )
         self.selection_indicator.adjustSize()
         self.selection_indicator.hide()
@@ -86,14 +86,14 @@ class MainWindow(QMainWindow):
         # Small "filename (x/total)" label, top-left corner. Always shown
         # while a file is loaded.
         self.file_info_label = QLabel(self.stack)
-        self.file_info_label.setStyleSheet(INFO_LABEL_STYLE
+        self.file_info_label.setStyleSheet(styles.INFO_LABEL
         )
         self.file_info_label.hide()
 
         # Small "mm:ss / mm:ss" timestamp label, top-right corner (below
         # the selection indicator). Only shown while viewing a video.
         self.time_label = QLabel(self.stack)
-        self.time_label.setStyleSheet(INFO_LABEL_STYLE
+        self.time_label.setStyleSheet(styles.INFO_LABEL
         )
         self.time_label.hide()
         self.video_viewer.player.positionChanged.connect(self._update_time_label)
@@ -103,7 +103,7 @@ class MainWindow(QMainWindow):
         # live in their own transparent container so their number can vary
         # freely from one video to another.
         self.timestamp_tags_widget = QWidget(self.stack)
-        self.timestamp_tags_widget.setStyleSheet("background: transparent;")
+        self.timestamp_tags_widget.setStyleSheet(styles.TRANSPARENT)
         self.timestamp_tags_layout = QVBoxLayout(self.timestamp_tags_widget)
         self.timestamp_tags_layout.setContentsMargins(0, 0, 0, 0)
         self.timestamp_tags_layout.setSpacing(3)
@@ -245,7 +245,7 @@ class MainWindow(QMainWindow):
     def _show_message(self, text):
         self.image_viewer.clear()
         self.image_viewer.label.setText(text)
-        self.image_viewer.label.setStyleSheet("color: white; background-color: black; font-size: 18px;")
+        self.image_viewer.label.setStyleSheet(styles.MESSAGE_TEXT)
         self.stack.setCurrentWidget(self.image_viewer)
         self.file_info_label.hide()
         self.time_label.hide()
@@ -435,9 +435,9 @@ class MainWindow(QMainWindow):
         """Apply the standard timestamp style, optionally emphasizing it."""
         button.setProperty("timestamp_tag_active", active)
         if active:
-            button.setStyleSheet(ACTIVE_TS_LINK_STYLE)
+            button.setStyleSheet(styles.ACTIVE_TS_LINK)
         else:
-            button.setStyleSheet(TS_LINK_STYLE)
+            button.setStyleSheet(styles.TS_LINK)
     def _update_active_timestamp_tag(self, position_ms):
         """Bold the timestamp interval containing the playback position."""
         if not self._timestamp_tag_buttons:

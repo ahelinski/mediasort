@@ -37,7 +37,7 @@ from PySide6.QtGui import QKeyEvent, QMouseEvent
 from .key_utils import matches_any
 from .file_scanner import list_subfolders, scan_media, scan_media_recursive, kind_for_path
 from .i18n import tr, tr_plural
-from .style import STYLE
+from . import styles
 
 PARENT_MARK = "..."
 
@@ -82,7 +82,7 @@ class BrowseDialog(QDialog):
 
         self.setWindowTitle(tr("browse_dialog.title"))
         self.resize(1020, 580)
-        self.setStyleSheet(STYLE)
+        self.setStyleSheet(styles.DIALOG)
 
         self._build_ui()
 
@@ -127,7 +127,7 @@ class BrowseDialog(QDialog):
         self._build_type_column(columns)
 
         self.match_label = QLabel(self)
-        self.match_label.setStyleSheet("font-weight: bold;")
+        self.match_label.setStyleSheet(styles.BOLD_LABEL)
         outer.addWidget(self.match_label)
 
         btn_row = QHBoxLayout()
@@ -144,7 +144,7 @@ class BrowseDialog(QDialog):
             tr("browse_dialog.hint"),
             self,
         )
-        hint.setStyleSheet("color: gray; font-size: 11px;")
+        hint.setStyleSheet(styles.HINT)
         hint.setWordWrap(True)
         outer.addWidget(hint)
 

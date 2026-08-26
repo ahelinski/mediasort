@@ -11,8 +11,8 @@ from PySide6.QtGui import QKeyEvent
 
 from .file_scanner import kind_for_path
 from .i18n import tr
+from . import styles
 from .selection_preview import SelectionPreviewWidget
-from .style import STYLE
 from .tags_db import MAX_TAG_LENGTH
 
 
@@ -26,7 +26,7 @@ class TagBrowseDialog(QDialog):
 
         self.setWindowTitle(tr("tag_browse.title"))
         self.resize(560, 480)
-        self.setStyleSheet(STYLE)
+        self.setStyleSheet(styles.DIALOG)
 
         self._build_ui()
         self._reload_tag_list()
@@ -66,7 +66,7 @@ class TagBrowseDialog(QDialog):
         layout.addLayout(btn_row)
 
         hint = QLabel(tr("tag_browse.hint"), self)
-        hint.setStyleSheet("color: gray; font-size: 11px;")
+        hint.setStyleSheet(styles.HINT)
         layout.addWidget(hint)
 
     def showEvent(self, event):

@@ -27,8 +27,8 @@ from PySide6.QtGui import QKeyEvent, QMouseEvent
 from .key_utils import matches_any
 from .file_scanner import list_subfolders, scan_media
 from .i18n import tr
+from . import styles
 from .selection_preview import SelectionPreviewWidget
-from .style import STYLE
 
 PARENT_MARK = "..."
 
@@ -64,7 +64,7 @@ class FileOperationDialog(QDialog):
         # OS theme. Give the whole dialog an explicit, theme-independent
         # dark style so every label stays readable regardless of the
         # system palette.
-        self.setStyleSheet(STYLE)
+        self.setStyleSheet(styles.DIALOG)
 
         self.mode = self.settings.get_last_dialog_mode() or "relative"
         # Directory currently being browsed in "relative" mode.
@@ -98,7 +98,7 @@ class FileOperationDialog(QDialog):
 
     def _build_left_panel(self, layout):
         info = QLabel(tr("file_dialog.current_file", filename=Path(self.current_file).name), self)
-        info.setStyleSheet(STYLE)
+        info.setStyleSheet(styles.DIALOG)
         layout.addWidget(info)
 
         self.mode_label = QLabel(self)
@@ -146,7 +146,7 @@ class FileOperationDialog(QDialog):
             self,
         )
         hint.setWordWrap(True)
-        hint.setStyleSheet("color: gray; font-size: 11px;")
+        hint.setStyleSheet(styles.HINT)
         layout.addWidget(hint)
 
     def _build_selection_panel(self, layout):

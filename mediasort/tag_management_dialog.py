@@ -20,7 +20,7 @@ from PySide6.QtGui import QKeyEvent
 
 from .tags_db import MAX_TAG_LENGTH
 from .i18n import tr
-from .style import STYLE, DEL_LINK_STYLE, LINK_STYLE
+from . import styles
 
 
 def _format_ts(seconds):
@@ -41,7 +41,7 @@ class TagManagementDialog(QDialog):
 
         self.setWindowTitle(tr("tag_manage.title"))
         self.resize(600, 480)
-        self.setStyleSheet(STYLE)
+        self.setStyleSheet(styles.DIALOG)
 
         self._build_ui()
         self._reload_recent_tags()
@@ -52,7 +52,7 @@ class TagManagementDialog(QDialog):
         layout = QVBoxLayout(self)
 
         info = QLabel(tr("tag_manage.current_file", filename=Path(self.current_file).name), self)
-        info.setStyleSheet(STYLE)
+        info.setStyleSheet(styles.DIALOG)
         layout.addWidget(info)
 
         layout.addWidget(QLabel(tr("tag_manage.tag_label"), self))
@@ -102,7 +102,7 @@ class TagManagementDialog(QDialog):
                 time=_format_ts(self.current_timestamp_sec),
             )
         hint = QLabel(hint_text, self)
-        hint.setStyleSheet("color: gray; font-size: 11px;")
+        hint.setStyleSheet(styles.HINT)
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
@@ -137,7 +137,7 @@ class TagManagementDialog(QDialog):
             row_layout.setContentsMargins(6, 2, 6, 2)
 
             label = QLabel(text, row_widget)
-            label.setStyleSheet(STYLE)
+            label.setStyleSheet(styles.DIALOG)
             row_layout.addWidget(label)
             row_layout.addStretch(1)
 
@@ -145,14 +145,14 @@ class TagManagementDialog(QDialog):
                 go_to_ts_link = QPushButton(tr("tag_manage.show_btn"), row_widget)
                 go_to_ts_link.setFlat(True)
                 go_to_ts_link.setCursor(Qt.PointingHandCursor)
-                go_to_ts_link.setStyleSheet(LINK_STYLE)
+                go_to_ts_link.setStyleSheet(styles.LINK)
                 go_to_ts_link.clicked.connect(lambda _checked=False, n=name, t=ts: self.parent().video_viewer.go_to_timestamp(t))
                 row_layout.addWidget(go_to_ts_link)
 
             delete_link = QPushButton(tr("tag_manage.remove_btn"), row_widget)
             delete_link.setFlat(True)
             delete_link.setCursor(Qt.PointingHandCursor)
-            delete_link.setStyleSheet(DEL_LINK_STYLE)
+            delete_link.setStyleSheet(styles.DEL_LINK)
             delete_link.clicked.connect(lambda _checked=False, n=name, t=ts: self._remove_tag(n, t))
             row_layout.addWidget(delete_link)
 

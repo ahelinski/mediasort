@@ -7,8 +7,8 @@ preview of every one of them instead.
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
 from PySide6.QtCore import Qt
 
+from . import styles
 from .i18n import tr
-from .style import INFO_STYLE, THUMB_STYLE, SELECTION_PREVIEW_STYLE
 from .thumbnails import get_thumbnail
 
 
@@ -23,7 +23,7 @@ class SelectionPreviewWidget(QWidget):
         layout.setSpacing(4)
 
         self.title_label = QLabel(title, self)
-        self.title_label.setStyleSheet(INFO_STYLE)
+        self.title_label.setStyleSheet(styles.INFO)
         layout.addWidget(self.title_label)
 
         self.row = QHBoxLayout()
@@ -38,7 +38,7 @@ class SelectionPreviewWidget(QWidget):
 
         if n == 0:
             empty = QLabel(tr("selection_preview.no_files"), self)
-            empty.setStyleSheet(INFO_STYLE)
+            empty.setStyleSheet(styles.INFO)
             self.row.addWidget(empty)
             return
 
@@ -52,7 +52,7 @@ class SelectionPreviewWidget(QWidget):
 
             count_label = QLabel(str(n), self)
             count_label.setAlignment(Qt.AlignCenter)
-            count_label.setStyleSheet(SELECTION_PREVIEW_STYLE)
+            count_label.setStyleSheet(styles.SELECTION_PREVIEW)
             self.row.addWidget(count_label)
 
             self.row.addWidget(self._make_thumb(last_path, last_kind))
@@ -61,7 +61,7 @@ class SelectionPreviewWidget(QWidget):
         label = QLabel(self)
         label.setFixedSize(THUMB_SIZE, THUMB_SIZE)
         label.setAlignment(Qt.AlignCenter)
-        label.setStyleSheet(THUMB_STYLE)
+        label.setStyleSheet(styles.THUMB)
         label.setPixmap(get_thumbnail(path, kind, THUMB_SIZE))
         label.setToolTip(path)
         return label

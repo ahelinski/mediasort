@@ -29,6 +29,8 @@ from PySide6.QtMultimediaWidgets import QGraphicsVideoItem
 from PySide6.QtCore import Qt, QUrl, QRectF, QSizeF, Signal
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush
 
+from . import styles
+
 class ProgressBarItem(QGraphicsObject):
     """Progress bar drawn as a QGraphicsItem so it is always composited
     on top of the video frame (no native overlay window involved).
@@ -157,7 +159,7 @@ class VideoViewer(QGraphicsView):
         super().__init__(parent)
         self.settings = settings
 
-        self.setStyleSheet("background-color: black; border: none;")
+        self.setStyleSheet(styles.VIDEO_VIEW)
         self.setFrameShape(QGraphicsView.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)

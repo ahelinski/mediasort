@@ -16,8 +16,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
-from . import style
-from .style import STYLE
+from . import styles
 from .file_scanner import kind_for_path
 from .i18n import tr
 from .key_utils import matches_any
@@ -37,7 +36,7 @@ class TagAssignDialog(QDialog):
 
         self.setWindowTitle(tr("tag_assign.title"))
         self.resize(880, 560)
-        self.setStyleSheet(STYLE)
+        self.setStyleSheet(styles.DIALOG)
 
         self._build_ui()
         self._reload_tag_list()
@@ -62,7 +61,7 @@ class TagAssignDialog(QDialog):
 
     def _build_left_panel(self, layout):
         info = QLabel(tr("tag_assign.current_file", filename=Path(self.current_file).name), self)
-        info.setStyleSheet(STYLE)
+        info.setStyleSheet(styles.DIALOG)
         layout.addWidget(info)
 
         layout.addWidget(QLabel(tr("tag_assign.tag_label"), self))
@@ -92,13 +91,13 @@ class TagAssignDialog(QDialog):
             tr("tag_assign.hint"),
             self,
         )
-        hint.setStyleSheet(style.HINT_STYLE)
+        hint.setStyleSheet(styles.HINT)
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
     def _build_middle_panel(self, layout):
         info = QLabel(tr("tag_assign.selected_count", count=len(self.selected_paths)), self)
-        # info.setStyleSheet(STYLE)
+        # info.setStyleSheet(styles.DIALOG)
         layout.addWidget(info)
 
         if len(self.selected_paths) > 0:
@@ -188,7 +187,7 @@ class TagAssignDialog(QDialog):
             delete_link = QPushButton(tr("tag_assign.delete_btn"), row_widget)
             delete_link.setFlat(True)
             # delete_link.setCursor(Qt.PointingHandCursor)
-            delete_link.setStyleSheet(style.DEL_LINK_STYLE)
+            delete_link.setStyleSheet(styles.DEL_LINK)
             delete_link.clicked.connect(lambda _checked=False, n=key: self._delete_tag(key, files))
             row_layout.addWidget(delete_link)
             item = QListWidgetItem()

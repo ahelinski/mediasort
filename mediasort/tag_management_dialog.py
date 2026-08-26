@@ -19,6 +19,7 @@ from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QKeyEvent
 
 from .tags_db import MAX_TAG_LENGTH
+from .i18n import tr
 from .style import STYLE, DEL_LINK_STYLE, LINK_STYLE
 
 
@@ -38,7 +39,7 @@ class TagManagementDialog(QDialog):
         self.tags_db = tags_db
         self.changed = False  # True if at least one tag was added this session
 
-        self.setWindowTitle("Tagi pliku")
+        self.setWindowTitle(tr("tag_manage.title"))
         self.resize(600, 480)
         self.setStyleSheet(STYLE)
 
@@ -50,11 +51,11 @@ class TagManagementDialog(QDialog):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
-        info = QLabel(f"Plik: {Path(self.current_file).name}", self)
+        info = QLabel(tr("tag_manage.current_file", filename=Path(self.current_file).name), self)
         info.setStyleSheet(STYLE)
         layout.addWidget(info)
 
-        layout.addWidget(QLabel("Tag:", self))
+        layout.addWidget(QLabel(tr("tag_manage.tag_label"), self))
         self.tag_edit = QLineEdit(self)
         self.tag_edit.setMaxLength(MAX_TAG_LENGTH)
         self.tag_edit.installEventFilter(self)
@@ -63,7 +64,7 @@ class TagManagementDialog(QDialog):
         lists_row = QHBoxLayout()
 
         left_col = QVBoxLayout()
-        left_col.addWidget(QLabel("Ostatnio uzywane tagi:", self))
+        left_col.addWidget(QLabel(tr("tag_manage.recent_tags_label"), self))
         self.recent_list = QListWidget(self)
         self.recent_list.currentItemChanged.connect(self._on_recent_selected)
         self.recent_list.installEventFilter(self)
@@ -71,7 +72,7 @@ class TagManagementDialog(QDialog):
         lists_row.addLayout(left_col)
 
         right_col = QVBoxLayout()
-        right_col.addWidget(QLabel("Tagi biezacego pliku:", self))
+        right_col.addWidget(QLabel(tr("tag_manage.file_tags_label"), self))
         self.file_tags_list = QListWidget(self)
         right_col.addWidget(self.file_tags_list)
         lists_row.addLayout(right_col)
@@ -79,24 +80,27 @@ class TagManagementDialog(QDialog):
         layout.addLayout(lists_row)
 
         btn_row = QHBoxLayout()
-        self.tag_file_btn = QPushButton("Tag plik (Enter)", self)
+        self.tag_file_btn = QPushButton(tr("tag_manage.tag_file_btn"), self)
         self.tag_file_btn.setDefault(True)
         self.tag_file_btn.clicked.connect(self._tag_file)
         btn_row.addWidget(self.tag_file_btn)
 
-        self.tag_timestamp_btn = QPushButton("Tag czas (Shift+Enter)", self)
+        self.tag_timestamp_btn = QPushButton(tr("tag_manage.tag_timestamp_btn"), self)
         self.tag_timestamp_btn.clicked.connect(self._tag_timestamp)
         self.tag_timestamp_btn.setVisible(self.is_video)
         btn_row.addWidget(self.tag_timestamp_btn)
 
-        self.close_btn = QPushButton("Zamknij (Esc)", self)
+        self.close_btn = QPushButton(tr("tag_manage.close_btn"), self)
         self.close_btn.clicked.connect(self.accept)
         btn_row.addWidget(self.close_btn)
         layout.addLayout(btn_row)
 
-        hint_text = "Enter: tag plik  |  Esc: zamknij  |  wpisz nowy tag albo wybierz z listy"
+        hint_text = tr("tag_manage.hint")
         if self.is_video:
-            hint_text += f"  |  Shift+Enter: tag czas (biezacy: {_format_ts(self.current_timestamp_sec)})"
+            hint_text += tr(
+                "tag_manage.hint_timestamp",
+                time=_format_ts(self.current_timestamp_sec),
+            )
         hint = QLabel(hint_text, self)
         hint.setStyleSheet("color: gray; font-size: 11px;")
         hint.setWordWrap(True)
@@ -138,14 +142,14 @@ class TagManagementDialog(QDialog):
             row_layout.addStretch(1)
 
             if ts is not None:
-                go_to_ts_link = QPushButton("Show", row_widget)
+                go_to_ts_link = QPushButton(tr("tag_manage.show_btn"), row_widget)
                 go_to_ts_link.setFlat(True)
                 go_to_ts_link.setCursor(Qt.PointingHandCursor)
                 go_to_ts_link.setStyleSheet(LINK_STYLE)
                 go_to_ts_link.clicked.connect(lambda _checked=False, n=name, t=ts: self.parent().video_viewer.go_to_timestamp(t))
                 row_layout.addWidget(go_to_ts_link)
 
-            delete_link = QPushButton("Usun", row_widget)
+            delete_link = QPushButton(tr("tag_manage.remove_btn"), row_widget)
             delete_link.setFlat(True)
             delete_link.setCursor(Qt.PointingHandCursor)
             delete_link.setStyleSheet(DEL_LINK_STYLE)

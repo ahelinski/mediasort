@@ -7,6 +7,7 @@ preview of every one of them instead.
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
 from PySide6.QtCore import Qt
 
+from .i18n import tr
 from .style import INFO_STYLE, THUMB_STYLE, SELECTION_PREVIEW_STYLE
 from .thumbnails import get_thumbnail
 
@@ -36,7 +37,7 @@ class SelectionPreviewWidget(QWidget):
         n = len(items)
 
         if n == 0:
-            empty = QLabel("Brak plikow", self)
+            empty = QLabel(tr("selection_preview.no_files"), self)
             empty.setStyleSheet(INFO_STYLE)
             self.row.addWidget(empty)
             return

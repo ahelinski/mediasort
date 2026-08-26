@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QKeyEvent
 
 from .file_scanner import kind_for_path
+from .i18n import tr
 from .selection_preview import SelectionPreviewWidget
 from .style import STYLE
 from .tags_db import MAX_TAG_LENGTH
@@ -23,7 +24,7 @@ class TagBrowseDialog(QDialog):
         self.confirmed = False
         self.selected_tag = None
 
-        self.setWindowTitle("Przegladaj wg tagu")
+        self.setWindowTitle(tr("tag_browse.title"))
         self.resize(560, 480)
         self.setStyleSheet(STYLE)
 
@@ -35,36 +36,36 @@ class TagBrowseDialog(QDialog):
     def _build_ui(self):
         layout = QVBoxLayout(self)
 
-        layout.addWidget(QLabel("Tag:", self))
+        layout.addWidget(QLabel(tr("tag_browse.tag_label"), self))
         self.tag_edit = QLineEdit(self)
         self.tag_edit.setMaxLength(MAX_TAG_LENGTH)
         self.tag_edit.installEventFilter(self)
         self.tag_edit.textChanged.connect(lambda _t: self._refresh_tag_preview())
         layout.addWidget(self.tag_edit)
 
-        layout.addWidget(QLabel("Ostatnio przegladane tagi:", self))
+        layout.addWidget(QLabel(tr("tag_browse.recent_tags_label"), self))
         self.tag_list = QListWidget(self)
         self.tag_list.currentItemChanged.connect(self._on_tag_selected)
         self.tag_list.installEventFilter(self)
         layout.addWidget(self.tag_list)
 
-        preview_box = QGroupBox("Podglad tagu", self)
+        preview_box = QGroupBox(tr("tag_browse.preview_group"), self)
         preview_layout = QVBoxLayout(preview_box)
-        self.tag_preview = SelectionPreviewWidget("Tag", preview_box)
+        self.tag_preview = SelectionPreviewWidget(tr("tag_browse.preview_tag"), preview_box)
         preview_layout.addWidget(self.tag_preview)
         layout.addWidget(preview_box)
 
         btn_row = QHBoxLayout()
-        self.open_btn = QPushButton("Otworz (Enter)", self)
+        self.open_btn = QPushButton(tr("tag_browse.open_btn"), self)
         self.open_btn.setDefault(True)
         self.open_btn.clicked.connect(self._confirm)
-        self.cancel_btn = QPushButton("Anuluj (Esc)", self)
+        self.cancel_btn = QPushButton(tr("tag_browse.cancel_btn"), self)
         self.cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(self.open_btn)
         btn_row.addWidget(self.cancel_btn)
         layout.addLayout(btn_row)
 
-        hint = QLabel("Enter: otworz  |  Esc: anuluj", self)
+        hint = QLabel(tr("tag_browse.hint"), self)
         hint.setStyleSheet("color: gray; font-size: 11px;")
         layout.addWidget(hint)
 

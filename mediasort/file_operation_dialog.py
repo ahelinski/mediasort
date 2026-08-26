@@ -26,6 +26,7 @@ from PySide6.QtGui import QKeyEvent, QMouseEvent
 
 from .key_utils import matches_any
 from .file_scanner import list_subfolders, scan_media
+from .i18n import tr
 from .selection_preview import SelectionPreviewWidget
 from .style import STYLE
 
@@ -51,8 +52,11 @@ class FileOperationDialog(QDialog):
         self.media_items = list(media_items) if media_items else [(self.current_file, "image")]
         self.selected_paths = selected_paths if selected_paths is not None else set()
 
-        titles = {"copy": "Kopiuj plik", "move": "Przenies plik"}
-        self.setWindowTitle(titles.get(default_action, "Operacja na pliku"))
+        titles = {
+            "copy": tr("file_dialog.title_copy"),
+            "move": tr("file_dialog.title_move"),
+        }
+        self.setWindowTitle(titles.get(default_action, tr("file_dialog.title_default")))
         self.resize(880, 560)
         # Setting a stylesheet on any single label (even just font-weight)
         # can make Qt stop inheriting the system palette for that widget
@@ -93,7 +97,7 @@ class FileOperationDialog(QDialog):
         self._build_selection_panel(right)
 
     def _build_left_panel(self, layout):
-        info = QLabel(f"Plik: {Path(self.current_file).name}", self)
+        info = QLabel(tr("file_dialog.current_file", filename=Path(self.current_file).name), self)
         info.setStyleSheet(STYLE)
         layout.addWidget(info)
 
@@ -104,10 +108,8 @@ class FileOperationDialog(QDialog):
         # mirrors the selected list item, but the user can type any path
         # into it; typed edits never propagate back to the list.
         self.location_edit = QLineEdit(self)
-        self.location_edit.setPlaceholderText("Sciezka docelowa...")
-        self.location_edit.setToolTip(
-            "Sciezka docelowa - wybierz folder z listy lub wpisz recznie"
-        )
+        self.location_edit.setPlaceholderText(tr("file_dialog.location_placeholder"))
+        self.location_edit.setToolTip(tr("file_dialog.location_tooltip"))
         self.location_edit.installEventFilter(self)
         # Let QLineEdit handle Return itself and react to its dedicated
         # signal.  This is more reliable than relying on the dialog-level
@@ -126,9 +128,9 @@ class FileOperationDialog(QDialog):
         layout.addWidget(self.list_widget)
 
         btn_row = QHBoxLayout()
-        self.copy_btn = QPushButton("Kopiuj (C)", self)
-        self.move_btn = QPushButton("Przenies (M)", self)
-        self.fav_btn = QPushButton("Ulubione +/-", self)
+        self.copy_btn = QPushButton(tr("file_dialog.copy_btn"), self)
+        self.move_btn = QPushButton(tr("file_dialog.move_btn"), self)
+        self.fav_btn = QPushButton(tr("file_dialog.fav_btn"), self)
         self.copy_btn.clicked.connect(lambda: self._perform("copy"))
         self.move_btn.clicked.connect(lambda: self._perform("move"))
         self.fav_btn.clicked.connect(self._toggle_favourite_current)
@@ -140,12 +142,7 @@ class FileOperationDialog(QDialog):
         layout.addLayout(btn_row)
 
         hint = QLabel(
-            "R: widok wzgledny  H: historia  F: ulubione  |  "
-            "F2: edytuj sciezke  |  "
-            "Enter: nawiguj folder (w trybie wzglednym) / akcja domyslna  |  "
-            "Ctrl+Enter: wykonaj akcje domyslna  |  "
-            "Alt+C: kopiuj  Alt+M: przenies  |  "
-            "Ctrl+D: ulubione  Esc: anuluj",
+            tr("file_dialog.hint"),
             self,
         )
         hint.setWordWrap(True)
@@ -153,10 +150,10 @@ class FileOperationDialog(QDialog):
         layout.addWidget(hint)
 
     def _build_selection_panel(self, layout):
-        context_box = QGroupBox("Kontekst operacji", self)
+        context_box = QGroupBox(tr("file_dialog.context_group"), self)
         context_layout = QVBoxLayout(context_box)
-        self.context_selected_radio = QRadioButton("Zaznaczone", context_box)
-        self.context_current_radio = QRadioButton("Biezacy plik", context_box)
+        self.context_selected_radio = QRadioButton(tr("file_dialog.context_selected"), context_box)
+        self.context_current_radio = QRadioButton(tr("file_dialog.context_current"), context_box)
         self.context_selected_radio.setChecked(True)  # default per spec
         group = QButtonGroup(self)
         group.addButton(self.context_selected_radio)
@@ -166,19 +163,19 @@ class FileOperationDialog(QDialog):
         layout.addWidget(context_box)
 
         action_row = QHBoxLayout()
-        self.invert_btn = QPushButton("Odwroc zaznaczenie (i)", self)
-        self.select_all_btn = QPushButton("Zaznacz wszystkie (a)", self)
+        self.invert_btn = QPushButton(tr("file_dialog.invert_btn"), self)
+        self.select_all_btn = QPushButton(tr("file_dialog.select_all_btn"), self)
         self.invert_btn.clicked.connect(self._invert_selection)
         self.select_all_btn.clicked.connect(self._select_all)
         action_row.addWidget(self.invert_btn)
         action_row.addWidget(self.select_all_btn)
         layout.addLayout(action_row)
 
-        summary_box = QGroupBox("Podsumowanie zaznaczenia", self)
+        summary_box = QGroupBox(tr("file_dialog.summary_group"), self)
         summary_layout = QVBoxLayout(summary_box)
-        self.selected_preview = SelectionPreviewWidget("Zaznaczone", summary_box)
-        self.remaining_preview = SelectionPreviewWidget("Pozostale", summary_box)
-        self.folder_preview = SelectionPreviewWidget("Folder", summary_box)
+        self.selected_preview = SelectionPreviewWidget(tr("file_dialog.preview_selected"), summary_box)
+        self.remaining_preview = SelectionPreviewWidget(tr("file_dialog.preview_remaining"), summary_box)
+        self.folder_preview = SelectionPreviewWidget(tr("file_dialog.preview_folder"), summary_box)
         summary_layout.addWidget(self.selected_preview)
         summary_layout.addWidget(self.remaining_preview)
         summary_layout.addWidget(self.folder_preview)
@@ -213,7 +210,7 @@ class FileOperationDialog(QDialog):
         return []
 
     def _reload_list(self, select_path=None):
-        self.mode_label.setText(f"Tryb: {self._mode_display_name()}")
+        self.mode_label.setText(tr("file_dialog.mode_label", mode=self._mode_display_name()))
         self.list_widget.blockSignals(True)
         self.list_widget.clear()
         entries = self._current_folder_list()
@@ -241,9 +238,9 @@ class FileOperationDialog(QDialog):
 
     def _mode_display_name(self):
         return {
-            "relative": "Wzgledny",
-            "history": "Historia",
-            "favourites": "Ulubione",
+            "relative": tr("file_dialog.mode.relative"),
+            "history": tr("file_dialog.mode.history"),
+            "favourites": tr("file_dialog.mode.favourites"),
         }.get(self.mode, self.mode)
 
     # ------------------------------------------------------------------
@@ -338,8 +335,8 @@ class FileOperationDialog(QDialog):
         remaining_items = self._remaining_items()
         self.selected_preview.set_items(selected_items)
         self.remaining_preview.set_items(remaining_items)
-        self.context_selected_radio.setText(f"Zaznaczone ({len(selected_items)})")
-        self.context_current_radio.setText("Biezacy plik")
+        self.context_selected_radio.setText(tr("file_dialog.context_selected_count", count=len(selected_items)))
+        self.context_current_radio.setText(tr("file_dialog.context_current"))
 
     def _invert_selection(self):
         all_paths = {p for p, _k in self.media_items}
@@ -370,27 +367,27 @@ class FileOperationDialog(QDialog):
 
         destination_folder = self._destination_path()
         if not destination_folder:
-            QMessageBox.warning(self, "Blad", "Nie wybrano lokalizacji docelowej.")
+            QMessageBox.warning(self, tr("common.error_title"), tr("file_dialog.error_no_destination"))
             return
 
         try:
             dest_path = Path(destination_folder)
         except (OSError, ValueError) as e:
-            QMessageBox.critical(self, "Nieprawidlowa sciezka", f"Podana sciezka jest nieprawidlowa: {e}")
+            QMessageBox.critical(self, tr("file_dialog.invalid_path_title"), tr("file_dialog.error_invalid_path", error=e))
             return
 
         if dest_path.exists() and not dest_path.is_dir():
             QMessageBox.critical(
-                self, "Nieprawidlowa sciezka",
-                "Wybrana lokalizacja istnieje, ale nie jest folderem.",
+                self, tr("file_dialog.invalid_path_title"),
+                tr("file_dialog.error_not_folder"),
             )
             return
 
         if not dest_path.exists():
             self.blockSignals(True)
             answer = QMessageBox.question(
-                self, "Utworzyc folder?",
-                f"Folder '{destination_folder}' nie istnieje. Czy utworzyc?",
+                self, tr("file_dialog.create_folder_title"),
+                tr("file_dialog.create_folder_ask", folder=destination_folder),
                 defaultButton=QMessageBox.StandardButton.Yes
             )
 
@@ -399,7 +396,7 @@ class FileOperationDialog(QDialog):
             try:
                 dest_path.mkdir(parents=True, exist_ok=True)
             except OSError as e:
-                QMessageBox.critical(self, "Nieprawidlowa sciezka", f"Nie mozna utworzyc folderu: {e}")
+                QMessageBox.critical(self, tr("file_dialog.invalid_path_title"), tr("file_dialog.error_create_folder", error=e))
                 return
             self.blockSignals(False)
 
@@ -421,7 +418,7 @@ class FileOperationDialog(QDialog):
 
         if errors:
             details = "\n".join(f"{Path(p).name}: {err}" for p, err in errors)
-            QMessageBox.warning(self, "Niektore operacje nie powiodly sie", details)
+            QMessageBox.warning(self, tr("file_dialog.some_failed_title"), details)
 
         if not succeeded:
             return  # nothing worked, keep the dialog open

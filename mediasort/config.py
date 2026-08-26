@@ -7,10 +7,15 @@ persisted history / favourites lists used by the file operation dialog.
 import json
 from pathlib import Path
 
+from .i18n import load_translations
+
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_SETTINGS_PATH = APP_DIR / "settings.json"
 
 DEFAULT_SETTINGS = {
+    # UI language code - selects the translation file
+    # mediasort/translations/<language>.json. Currently only "pl" exists.
+    "language": "pl",
     # General navigation and action keys - active whenever an image or
     # video is being displayed (i.e. whenever the file operation dialog
     # ISN'T open). Each action accepts one OR MORE trigger strings
@@ -83,6 +88,9 @@ class Settings:
     def __init__(self, path=None):
         self.path = Path(path) if path else DEFAULT_SETTINGS_PATH
         self.data = self._load()
+        # Make the UI language from settings.json take effect immediately
+        # (looks up mediasort/translations/<language>.json).
+        load_translations(self.get("language", default="pl"))
 
     # -- loading / saving -------------------------------------------------
     def _load(self):

@@ -1,21 +1,28 @@
 """Open/Browse dialog: pick files to view by folder, tag, or both,
-optionally filtered by media type. Split out from the copy/move dialog
-since browsing has fundamentally different semantics (no destination, no
-selected-files context - just choosing WHAT to view).
+optionally filtered by media type.
 
 Layout: three sections side by side.
-  1. Folder picker - same Relative/History/Favourites modes and manual
-     F2/click path editing as the copy/move dialog, but folder selection
-     is OPTIONAL here (nothing is auto-selected).
-  2. Tag list - every known tag, alphabetically, single-select, also
-     optional.
+  1. Folder picker - "Browse folder" checkbox switches the whole panel
+     on/off.  When on, a folder value is REQUIRED; the
+     Relative/History/Favourites list feeds the always-editable path
+     field using the same selection logic as the copy/move dialog (list
+     selection writes into the field, manual edits never propagate back,
+     re-selecting overwrites, and confirmation always uses the field).
+     When off, the rest of the panel is disabled.
+  2. Tag picker - "Browse tag" checkbox switches the whole panel on/off.
+     When on, a tag value is REQUIRED and every file carrying that tag is
+     a match.  When off, the rest of the panel is disabled.
   3. Media type filter - Images and videos / Images only / Videos only.
 
-At least one of folder or tag must be chosen. If only a folder is chosen,
-all its files (optionally filtered by type) are shown. If only a tag is
-chosen, every file carrying that tag (optionally filtered by type) is
-shown. If both are chosen, only files that are BOTH in that folder AND
-carry that tag are shown.
+At least one of the two checkboxes must be checked.  With only the folder
+checkbox, all files in that folder (optionally including subfolders) are
+shown; with only the tag checkbox, every file carrying that tag; with
+both, only files that are BOTH in the folder AND carry the tag.
+
+The dialog remembers its state (checkboxes, folder mode/path, tag, type
+filter) between opens within one application run.  When the app restarts,
+the state resets to: only "Browse folder" checked, folder mode relative,
+folder set to the current folder.
 """
 from pathlib import Path
 
@@ -24,24 +31,34 @@ from PySide6.QtWidgets import (
     QLineEdit, QPushButton, QLabel, QGroupBox, QRadioButton, QButtonGroup,
     QMessageBox, QCheckBox
 )
-from PySide6.QtCore import Qt, QEvent, Signal
+from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
 from .key_utils import matches_any
 from .file_scanner import list_subfolders, scan_media, scan_media_recursive, kind_for_path
+from .i18n import tr, tr_plural
 from .style import STYLE
 
 PARENT_MARK = "..."
 
+# Session-scoped state of the browse dialog: preserved between opens
+# within one app run, discarded when the app exits (never written to
+# settings.json, so restarting the app resets to the initial state).
+_SESSION_STATE = None
 
-class ClickableLabel(QLabel):
-    """A QLabel that emits `clicked` on a left mouse click."""
-    clicked = Signal()
 
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.clicked.emit()
-        super().mousePressEvent(event)
+def _default_session_state(current_folder):
+    """Initial state for a fresh application run."""
+    return {
+        "browse_folder": True,
+        "browse_tag": False,
+        "folder_mode": "relative",
+        "relative_dir": str(current_folder),
+        "folder_path": "",
+        "include_subfolders": False,
+        "tag": None,
+        "type_filter": "both",
+    }
 
 
 class BrowseDialog(QDialog):
@@ -55,16 +72,46 @@ class BrowseDialog(QDialog):
         self.result_items = []     # list of (path, kind) once confirmed
         self.result_folder = None  # folder to adopt as MainWindow.folder, or None
 
-        self.folder_mode = self.settings.get_last_dialog_mode() or "relative"
-        self._relative_dir = self.current_folder
+        # Restore the previous state from this app run, if any.
+        self._session = _default_session_state(self.current_folder)
+        if _SESSION_STATE is not None:
+            self._session = dict(_SESSION_STATE)
 
-        self.setWindowTitle("Otworz / Przegladaj")
+        self.folder_mode = self._session["folder_mode"]
+        self._relative_dir = self._session["relative_dir"] or self.current_folder
+
+        self.setWindowTitle(tr("browse_dialog.title"))
         self.resize(1020, 580)
         self.setStyleSheet(STYLE)
 
         self._build_ui()
-        self._reload_folder_list()
+
+        # Restore checkbox / option states.  The toggled handlers enable
+        # or disable the rest of each panel, so they must run after the
+        # UI exists.  setChecked() only emits toggled when the state
+        # actually changes, so also apply the enabled states explicitly.
+        self.browse_folder_cb.setChecked(self._session["browse_folder"])
+        self.browse_tag_cb.setChecked(self._session["browse_tag"])
+        self.include_subfolders_cb.setChecked(self._session["include_subfolders"])
+        self._set_type_filter(self._session["type_filter"])
+        self._apply_folder_enabled()
+        self._apply_tag_enabled()
+
+        # First open of a fresh app run: folder browsing on, relative mode
+        # rooted at the current folder, and the folder value set to the
+        # current folder itself (no row is pre-selected from the list).
+        first_open = _SESSION_STATE is None
+        self._reload_folder_list(
+            select_path=self._session["folder_path"] or None,
+            auto_select=not first_open,
+        )
         self._reload_tag_list()
+        if self._session["tag"]:
+            for row in range(self.tag_list.count()):
+                if self.tag_list.item(row).data(Qt.UserRole) == self._session["tag"]:
+                    self.tag_list.setCurrentRow(row)
+                    break
+        self.location_edit.setText(self._session["folder_path"] or self.current_folder)
         self._update_match_count()
 
     # ------------------------------------------------------------------
@@ -84,20 +131,17 @@ class BrowseDialog(QDialog):
         outer.addWidget(self.match_label)
 
         btn_row = QHBoxLayout()
-        self.open_btn = QPushButton("Otworz (Enter)", self)
+        self.open_btn = QPushButton(tr("browse_dialog.open_btn"), self)
         self.open_btn.setDefault(True)
         self.open_btn.clicked.connect(self._confirm)
-        self.cancel_btn = QPushButton("Anuluj (Esc)", self)
+        self.cancel_btn = QPushButton(tr("browse_dialog.cancel_btn"), self)
         self.cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(self.open_btn)
         btn_row.addWidget(self.cancel_btn)
         outer.addLayout(btn_row)
 
         hint = QLabel(
-            "R/H/F: tryb folderu (wzgledny/historia/ulubione)  |  "
-            "F2 / klik na sciezce: recznie edytuj folder  |  "
-            "Enter: otworz (lub wejdz w podfolder w trybie wzglednym)  |  "
-            "Esc: anuluj  |  Trzeba wybrac folder LUB tag (mozna oba)",
+            tr("browse_dialog.hint"),
             self,
         )
         hint.setStyleSheet("color: gray; font-size: 11px;")
@@ -108,32 +152,37 @@ class BrowseDialog(QDialog):
         col = QVBoxLayout()
         columns.addLayout(col, 2)
 
-        col.addWidget(QLabel("Folder:", self))
+        self.browse_folder_cb = QCheckBox(tr("browse_dialog.browse_folder_cb"), self)
+        self.browse_folder_cb.setToolTip(tr("browse_dialog.browse_folder_tooltip"))
+        self.browse_folder_cb.toggled.connect(self._on_folder_browse_toggled)
+        col.addWidget(self.browse_folder_cb)
+
+        col.addWidget(QLabel(tr("browse_dialog.folder_label"), self))
 
         self.folder_mode_label = QLabel(self)
         col.addWidget(self.folder_mode_label)
 
-        self.location_label = ClickableLabel(self)
-        self.location_label.setStyleSheet(
-            # "padding: 4px 6px; border: 1px solid #555; background-color: #222; "
-            # "color: white; border-radius: 3px;"
-            STYLE
-        )
-        self.location_label.setToolTip("Kliknij lub nacisnij F2 aby recznie wpisac sciezke")
-        self.location_label.clicked.connect(self._begin_edit_location)
-        col.addWidget(self.location_label)
-
+        # Destination path: a permanently visible, editable field.  It
+        # mirrors the selected list item, but the user can type any path
+        # into it; typed edits never propagate back to the list.
         self.location_edit = QLineEdit(self)
+        self.location_edit.setPlaceholderText(tr("browse_dialog.folder_placeholder"))
+        self.location_edit.setToolTip(tr("browse_dialog.folder_tooltip"))
         self.location_edit.installEventFilter(self)
-        self.location_edit.hide()
+        # Let QLineEdit handle Return itself and react to its dedicated
+        # signal.  This is more reliable than relying on the dialog-level
+        # event filter: Return can otherwise be consumed by the focused
+        # line edit before it reaches the dialog.
+        self.location_edit.returnPressed.connect(self._confirm)
+        # Keep the match count in sync with whatever the field holds right
+        # now - list selections write into it, manual edits too.
+        self.location_edit.textChanged.connect(lambda _: self._update_match_count())
         col.addWidget(self.location_edit)
 
-        self.include_subfolders_cb = QCheckBox("Uwzglednij podfoldery", self)
+        self.include_subfolders_cb = QCheckBox(tr("browse_dialog.include_subfolders"), self)
         depth = self.settings.get("browse_subfolder_depth", default=1)
         self.include_subfolders_cb.setToolTip(
-            f"Przeszukuje takze podfoldery (do {depth} "
-            + ("poziomu" if depth == 1 else "poziomow")
-            + " w glab - zmien w settings.json: browse_subfolder_depth)"
+            tr_plural("browse_dialog.include_subfolders_tooltip", depth, depth=depth)
         )
         self.include_subfolders_cb.toggled.connect(lambda _checked: self._update_match_count())
         col.addWidget(self.include_subfolders_cb)
@@ -144,7 +193,7 @@ class BrowseDialog(QDialog):
         self.folder_list.installEventFilter(self)
         col.addWidget(self.folder_list)
 
-        self.clear_folder_btn = QPushButton("Wyczysc folder", self)
+        self.clear_folder_btn = QPushButton(tr("browse_dialog.clear_folder_btn"), self)
         self.clear_folder_btn.clicked.connect(self._clear_folder)
         col.addWidget(self.clear_folder_btn)
 
@@ -152,14 +201,19 @@ class BrowseDialog(QDialog):
         col = QVBoxLayout()
         columns.addLayout(col, 2)
 
-        col.addWidget(QLabel("Tag:", self))
+        self.browse_tag_cb = QCheckBox(tr("browse_dialog.browse_tag_cb"), self)
+        self.browse_tag_cb.setToolTip(tr("browse_dialog.browse_tag_tooltip"))
+        self.browse_tag_cb.toggled.connect(self._on_tag_browse_toggled)
+        col.addWidget(self.browse_tag_cb)
+
+        col.addWidget(QLabel(tr("browse_dialog.tag_label"), self))
 
         self.tag_list = QListWidget(self)
         self.tag_list.currentItemChanged.connect(lambda *_: self._update_match_count())
         self.tag_list.installEventFilter(self)
         col.addWidget(self.tag_list)
 
-        self.clear_tag_btn = QPushButton("Wyczysc tag", self)
+        self.clear_tag_btn = QPushButton(tr("browse_dialog.clear_tag_btn"), self)
         self.clear_tag_btn.clicked.connect(self._clear_tag)
         col.addWidget(self.clear_tag_btn)
 
@@ -167,11 +221,11 @@ class BrowseDialog(QDialog):
         col = QVBoxLayout()
         columns.addLayout(col, 1)
 
-        type_box = QGroupBox("Typ plikow", self)
+        type_box = QGroupBox(tr("browse_dialog.type_group"), self)
         type_layout = QVBoxLayout(type_box)
-        self.radio_both = QRadioButton("Zdjecia i wideo", type_box)
-        self.radio_images = QRadioButton("Tylko zdjecia", type_box)
-        self.radio_videos = QRadioButton("Tylko wideo", type_box)
+        self.radio_both = QRadioButton(tr("browse_dialog.type_both"), type_box)
+        self.radio_images = QRadioButton(tr("browse_dialog.type_images"), type_box)
+        self.radio_videos = QRadioButton(tr("browse_dialog.type_videos"), type_box)
         self.radio_both.setChecked(True)
         group = QButtonGroup(self)
         for rb in (self.radio_both, self.radio_images, self.radio_videos):
@@ -185,11 +239,17 @@ class BrowseDialog(QDialog):
 
     def showEvent(self, event):
         super().showEvent(event)
-        self.folder_list.setFocus()
+        if self.browse_folder_cb.isChecked():
+            self.folder_list.setFocus()
+        elif self.browse_tag_cb.isChecked():
+            self.tag_list.setFocus()
+        else:
+            self.radio_both.setFocus()
 
     # ------------------------------------------------------------------
-    # Folder list (Relative / History / Favourites) - same semantics as
-    # the copy/move dialog, but nothing is auto-selected here.
+    # Folder list (Relative / History / Favourites) - same selection
+    # logic as the copy/move dialog: the list feeds the always-editable
+    # location edit, which is the single source of truth.
     # ------------------------------------------------------------------
     def _current_folder_list(self):
         if self.folder_mode == "relative":
@@ -206,8 +266,8 @@ class BrowseDialog(QDialog):
             return [(p, p) for p in self.settings.get_favourites()]
         return []
 
-    def _reload_folder_list(self, select_path=None):
-        self.folder_mode_label.setText(f"Tryb: {self._mode_display_name()}")
+    def _reload_folder_list(self, select_path=None, auto_select=True):
+        self.folder_mode_label.setText(tr("browse_dialog.mode_label", mode=self._mode_display_name()))
         self.folder_list.blockSignals(True)
         self.folder_list.clear()
         for text, path in self._current_folder_list():
@@ -223,16 +283,27 @@ class BrowseDialog(QDialog):
                 if self.folder_list.item(row).data(Qt.UserRole) == select_path:
                     self.folder_list.setCurrentRow(row)
                     break
+        elif auto_select and self.browse_folder_cb.isChecked() and self.folder_list.count() > 0:
+            # After a reload (mode switch / navigation) the first folder
+            # from the list is selected and its path is pushed into the
+            # location edit - same as the copy/move dialog.
+            self.folder_list.setCurrentRow(0)
 
     def _mode_display_name(self):
-        return {"relative": "Wzgledny", "history": "Historia", "favourites": "Ulubione"}.get(
+        return {
+            "relative": tr("file_dialog.mode.relative"),
+            "history": tr("file_dialog.mode.history"),
+            "favourites": tr("file_dialog.mode.favourites"),
+        }.get(
             self.folder_mode, self.folder_mode
         )
 
     def _on_folder_selected(self, current, _previous):
+        # Picking a list row overwrites whatever the location edit holds
+        # (the list is authoritative while a row is being selected).  The
+        # reverse never happens: manual edits leave the list untouched.
         if current is not None:
-            self.location_label.setText(current.data(Qt.UserRole))
-            self._update_match_count()
+            self.location_edit.setText(current.data(Qt.UserRole))
 
     def _navigate_or_select(self):
         item = self.folder_list.currentItem()
@@ -249,38 +320,43 @@ class BrowseDialog(QDialog):
         self._reload_folder_list()
 
     def _clear_folder(self):
-        self.folder_list.blockSignals(True)
-        self.folder_list.setCurrentRow(-1)
-        self.folder_list.blockSignals(False)
-        self.location_label.clear()
-        self._update_match_count()
+        # "Clear" turns folder browsing off - the panel (including this
+        # button) becomes disabled; re-checking restores the previous
+        # folder value.
+        self.browse_folder_cb.setChecked(False)
 
     def _clear_tag(self):
-        self.tag_list.blockSignals(True)
-        self.tag_list.setCurrentRow(-1)
-        self.tag_list.blockSignals(False)
+        # "Clear" turns tag browsing off - the panel (including this
+        # button) becomes disabled.
+        self.browse_tag_cb.setChecked(False)
+
+    # -- "Browse folder" / "Browse tag" checkbox handling ---------------
+    def _on_folder_browse_toggled(self, checked):
+        self._apply_folder_enabled()
         self._update_match_count()
 
-    # -- custom location editing (F2 / click on the label) ---------------
+    def _apply_folder_enabled(self):
+        enabled = self.browse_folder_cb.isChecked()
+        for w in (self.folder_mode_label, self.location_edit,
+                  self.include_subfolders_cb, self.folder_list,
+                  self.clear_folder_btn):
+            w.setEnabled(enabled)
+
+    def _on_tag_browse_toggled(self, checked):
+        self._apply_tag_enabled()
+        self._update_match_count()
+
+    def _apply_tag_enabled(self):
+        enabled = self.browse_tag_cb.isChecked()
+        for w in (self.tag_list, self.clear_tag_btn):
+            w.setEnabled(enabled)
+
+    # -- custom location editing ----------------------------------------
+    # The location edit is always visible, so "editing" is simply focusing
+    # the field and typing over whatever it currently holds.
     def _begin_edit_location(self):
-        self.location_edit.setText(self.location_label.text())
-        self.location_label.hide()
-        self.location_edit.show()
         self.location_edit.setFocus()
         self.location_edit.selectAll()
-
-    def _confirm_edit_location(self):
-        self.location_label.setText(self.location_edit.text().strip())
-        self._end_edit_location()
-        self._update_match_count()
-
-    def _cancel_edit_location(self):
-        self._end_edit_location()
-
-    def _end_edit_location(self):
-        self.location_edit.hide()
-        self.location_label.show()
-        self.folder_list.setFocus()
 
     # ------------------------------------------------------------------
     # Tag list - every known tag, alphabetically
@@ -298,7 +374,7 @@ class BrowseDialog(QDialog):
     # Combined folder + tag + type filtering
     # ------------------------------------------------------------------
     def _selected_folder(self):
-        return self.location_label.text().strip() or None
+        return self.location_edit.text().strip() or None
 
     def _selected_tag(self):
         item = self.tag_list.currentItem()
@@ -311,6 +387,12 @@ class BrowseDialog(QDialog):
             return "videos"
         return "both"
 
+    def _set_type_filter(self, which):
+        for rb, name in ((self.radio_both, "both"),
+                         (self.radio_images, "images"),
+                         (self.radio_videos, "videos")):
+            rb.setChecked(name == which)
+
     def _ext_lists(self):
         image_exts = self.settings.get("image_extensions", default=[])
         video_exts = self.settings.get("video_extensions", default=[])
@@ -321,12 +403,34 @@ class BrowseDialog(QDialog):
             return [], video_exts
         return image_exts, video_exts
 
+    def _missing_selection_message(self):
+        """Return a user-facing message when the current state cannot be
+        confirmed, or None when a valid search can be run."""
+        if not self.browse_folder_cb.isChecked() and not self.browse_tag_cb.isChecked():
+            return tr("browse_dialog.missing_selection")
+        if self.browse_folder_cb.isChecked() and not self._selected_folder():
+            return tr("browse_dialog.missing_folder")
+        if self.browse_tag_cb.isChecked() and not self._selected_tag():
+            return tr("browse_dialog.missing_tag")
+        return None
+
     def _compute_matching_items(self):
-        """Returns list of (path, kind), or None if neither folder nor tag
-        is selected (invalid - the dialog can't be confirmed)."""
-        folder = self._selected_folder()
-        tag = self._selected_tag()
-        if not folder and not tag:
+        """Returns list of (path, kind), or None when the current state is
+        not a valid search (nothing selected, or a required value missing).
+
+        Folder and tag filters only apply when their checkbox is checked;
+        when both are checked, only files that match BOTH are returned.
+        """
+        use_folder = self.browse_folder_cb.isChecked()
+        use_tag = self.browse_tag_cb.isChecked()
+        if not use_folder and not use_tag:
+            return None
+
+        folder = self._selected_folder() if use_folder else None
+        tag = self._selected_tag() if use_tag else None
+        if use_folder and not folder:
+            return None
+        if use_tag and not tag:
             return None
 
         image_exts, video_exts = self._ext_lists()
@@ -361,24 +465,49 @@ class BrowseDialog(QDialog):
         return items
 
     def _update_match_count(self):
+        message = self._missing_selection_message()
+        if message is not None:
+            self.match_label.setText(message)
+            return
         items = self._compute_matching_items()
-        if items is None:
-            self.match_label.setText("Wybierz folder lub tag (mozna oba).")
-        elif not items:
-            self.match_label.setText("Znaleziono: 0 plikow")
+        if not items:
+            self.match_label.setText(tr_plural("browse_dialog.found_files", 0))
         else:
-            self.match_label.setText(f"Znaleziono: {len(items)} " + ("plik" if len(items) == 1 else "plikow"))
+            self.match_label.setText(tr_plural("browse_dialog.found_files", len(items)))
 
     # ------------------------------------------------------------------
     def _confirm(self):
+        message = self._missing_selection_message()
+        if message is not None:
+            QMessageBox.warning(self, tr("common.error_title"), message)
+            return
         items = self._compute_matching_items()
         if items is None:
-            QMessageBox.warning(self, "Blad", "Wybierz folder lub tag (mozna oba, ale przynajmniej jedno).")
-            return
+            return  # defensive - _missing_selection_message covered it
         self.result_items = items
-        self.result_folder = self._selected_folder()
+        self.result_folder = self._selected_folder() if self.browse_folder_cb.isChecked() else None
         self.confirmed = True
         self.accept()
+
+    # ------------------------------------------------------------------
+    # Session state: remembered between opens, reset when app restarts.
+    # ------------------------------------------------------------------
+    def done(self, result):
+        self._save_session_state()
+        super().done(result)
+
+    def _save_session_state(self):
+        global _SESSION_STATE
+        _SESSION_STATE = {
+            "browse_folder": self.browse_folder_cb.isChecked(),
+            "browse_tag": self.browse_tag_cb.isChecked(),
+            "folder_mode": self.folder_mode,
+            "relative_dir": self._relative_dir,
+            "folder_path": self.location_edit.text().strip(),
+            "include_subfolders": self.include_subfolders_cb.isChecked(),
+            "tag": self._selected_tag(),
+            "type_filter": self._media_type_filter(),
+        }
 
     # ------------------------------------------------------------------
     # Configurable keyboard / mouse handling
@@ -400,12 +529,15 @@ class BrowseDialog(QDialog):
     def _handle_key(self, event, focused_obj) -> bool:
         file_dialog_keys = self.settings.get("file_dialog", default={})
 
-        if not self.location_edit.isHidden() and focused_obj is self.location_edit:
+        # While the location edit has focus, let QLineEdit process text
+        # input normally.  Enter confirms using the field's current value;
+        # Escape cancels the whole dialog.
+        if focused_obj is self.location_edit:
             if isinstance(event, QKeyEvent) and event.key() in (Qt.Key_Return, Qt.Key_Enter):
-                self._confirm_edit_location()
+                self._confirm()
                 return True
             if matches_any(event, file_dialog_keys.get("cancel", ["Escape"])):
-                self._cancel_edit_location()
+                self.reject()
                 return True
             return False
 
@@ -417,8 +549,9 @@ class BrowseDialog(QDialog):
             return True
 
         # R/H/F only switch the folder mode when the tag list doesn't have
-        # focus (so typing doesn't clash with Qt's list type-ahead search).
-        if focused_obj is not self.tag_list:
+        # focus (so typing doesn't clash with Qt's list type-ahead search)
+        # and folder browsing is enabled.
+        if focused_obj is not self.tag_list and self.browse_folder_cb.isChecked():
             if matches_any(event, file_dialog_keys.get("mode_relative", ["R"])):
                 self._set_folder_mode("relative")
                 return True

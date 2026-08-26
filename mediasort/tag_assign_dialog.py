@@ -19,6 +19,7 @@ from PySide6.QtGui import QKeyEvent, QMouseEvent
 from . import style
 from .style import STYLE
 from .file_scanner import kind_for_path
+from .i18n import tr
 from .key_utils import matches_any
 from .selection_preview import SelectionPreviewWidget
 from .tags_db import MAX_TAG_LENGTH
@@ -34,7 +35,7 @@ class TagAssignDialog(QDialog):
         self.selected_paths = selected_paths if selected_paths is not None else set()
         self.assigned = False  # True once at least one assignment has been made
 
-        self.setWindowTitle("Przypisz tag")
+        self.setWindowTitle(tr("tag_assign.title"))
         self.resize(880, 560)
         self.setStyleSheet(STYLE)
 
@@ -60,35 +61,35 @@ class TagAssignDialog(QDialog):
         self._build_selection_panel(right)
 
     def _build_left_panel(self, layout):
-        info = QLabel(f"Plik: {Path(self.current_file).name}", self)
+        info = QLabel(tr("tag_assign.current_file", filename=Path(self.current_file).name), self)
         info.setStyleSheet(STYLE)
         layout.addWidget(info)
 
-        layout.addWidget(QLabel("Tag:", self))
+        layout.addWidget(QLabel(tr("tag_assign.tag_label"), self))
         self.tag_edit = QLineEdit(self)
         self.tag_edit.setMaxLength(MAX_TAG_LENGTH)
         self.tag_edit.installEventFilter(self)
         self.tag_edit.textChanged.connect(lambda _text: self._refresh_tag_preview())
         layout.addWidget(self.tag_edit)
 
-        layout.addWidget(QLabel("Ostatnio uzywane tagi (\u2713 = juz przypisany do biezacego pliku):", self))
+        layout.addWidget(QLabel(tr("tag_assign.recent_tags_label"), self))
         self.tag_list = QListWidget(self)
         self.tag_list.currentItemChanged.connect(self._on_tag_selected)
         self.tag_list.installEventFilter(self)
         layout.addWidget(self.tag_list)
 
         btn_row = QHBoxLayout()
-        self.assign_btn = QPushButton("Przypisz (Enter)", self)
+        self.assign_btn = QPushButton(tr("tag_assign.assign_btn"), self)
         self.assign_btn.setDefault(True)
         self.assign_btn.clicked.connect(self._perform_assign)
-        self.cancel_btn = QPushButton("Anuluj (Esc)", self)
+        self.cancel_btn = QPushButton(tr("tag_assign.cancel_btn"), self)
         self.cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(self.assign_btn)
         btn_row.addWidget(self.cancel_btn)
         layout.addLayout(btn_row)
 
         hint = QLabel(
-            "Enter: przypisz tag  |  Esc: anuluj  |  wpisz nowy tag albo wybierz z listy",
+            tr("tag_assign.hint"),
             self,
         )
         hint.setStyleSheet(style.HINT_STYLE)
@@ -96,24 +97,24 @@ class TagAssignDialog(QDialog):
         layout.addWidget(hint)
 
     def _build_middle_panel(self, layout):
-        info = QLabel(f"Selected: {len(self.selected_paths)}", self)
+        info = QLabel(tr("tag_assign.selected_count", count=len(self.selected_paths)), self)
         # info.setStyleSheet(STYLE)
         layout.addWidget(info)
 
         if len(self.selected_paths) > 0:
-            layout.addWidget(QLabel("Tagi odnalezione w zaznaczonych plikach:", self))
+            layout.addWidget(QLabel(tr("tag_assign.tags_in_selected"), self))
         else:
-            layout.addWidget(QLabel("Tagi odnalezione w bieżącym pliku:", self))
+            layout.addWidget(QLabel(tr("tag_assign.tags_in_current"), self))
         self.tag_count_list = QListWidget(self)
         # self.tag_count_list.currentItemChanged.connect(self._on_tag_selected)
         self.tag_count_list.installEventFilter(self)
         layout.addWidget(self.tag_count_list)
 
     def _build_selection_panel(self, layout):
-        context_box = QGroupBox("Kontekst operacji", self)
+        context_box = QGroupBox(tr("tag_assign.context_group"), self)
         context_layout = QVBoxLayout(context_box)
-        self.context_selected_radio = QRadioButton("Zaznaczone", context_box)
-        self.context_current_radio = QRadioButton("Biezacy plik", context_box)
+        self.context_selected_radio = QRadioButton(tr("tag_assign.context_selected"), context_box)
+        self.context_current_radio = QRadioButton(tr("tag_assign.context_current"), context_box)
         self.context_selected_radio.setChecked(True)
         group = QButtonGroup(self)
         group.addButton(self.context_selected_radio)
@@ -123,19 +124,19 @@ class TagAssignDialog(QDialog):
         layout.addWidget(context_box)
 
         action_row = QHBoxLayout()
-        self.invert_btn = QPushButton("Odwroc zaznaczenie (i)", self)
-        self.select_all_btn = QPushButton("Zaznacz wszystkie (a)", self)
+        self.invert_btn = QPushButton(tr("tag_assign.invert_btn"), self)
+        self.select_all_btn = QPushButton(tr("tag_assign.select_all_btn"), self)
         self.invert_btn.clicked.connect(self._invert_selection)
         self.select_all_btn.clicked.connect(self._select_all)
         action_row.addWidget(self.invert_btn)
         action_row.addWidget(self.select_all_btn)
         layout.addLayout(action_row)
 
-        summary_box = QGroupBox("Podsumowanie", self)
+        summary_box = QGroupBox(tr("tag_assign.summary_group"), self)
         summary_layout = QVBoxLayout(summary_box)
-        self.selected_preview = SelectionPreviewWidget("Zaznaczone", summary_box)
-        self.remaining_preview = SelectionPreviewWidget("Pozostale", summary_box)
-        self.tag_preview = SelectionPreviewWidget("Tag", summary_box)
+        self.selected_preview = SelectionPreviewWidget(tr("tag_assign.preview_selected"), summary_box)
+        self.remaining_preview = SelectionPreviewWidget(tr("tag_assign.preview_remaining"), summary_box)
+        self.tag_preview = SelectionPreviewWidget(tr("tag_assign.preview_tag"), summary_box)
         summary_layout.addWidget(self.selected_preview)
         summary_layout.addWidget(self.remaining_preview)
         summary_layout.addWidget(self.tag_preview)
@@ -184,7 +185,7 @@ class TagAssignDialog(QDialog):
             row_layout.addWidget(item)
             row_layout.addStretch(1)
 
-            delete_link = QPushButton("Del", row_widget)
+            delete_link = QPushButton(tr("tag_assign.delete_btn"), row_widget)
             delete_link.setFlat(True)
             # delete_link.setCursor(Qt.PointingHandCursor)
             delete_link.setStyleSheet(style.DEL_LINK_STYLE)
@@ -226,7 +227,7 @@ class TagAssignDialog(QDialog):
         remaining_items = self._remaining_items()
         self.selected_preview.set_items(selected_items)
         self.remaining_preview.set_items(remaining_items)
-        self.context_selected_radio.setText(f"Zaznaczone ({len(selected_items)})")
+        self.context_selected_radio.setText(tr("tag_assign.context_selected_count", count=len(selected_items)))
 
     def _invert_selection(self):
         all_paths = {p for p, _k in self.media_items}

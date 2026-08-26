@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 
 from .config import Settings
+from .i18n import tr
 from .key_utils import matches_any, matching_trigger
 from .file_scanner import scan_media, kind_for_path
 from .image_viewer import ImageViewer
@@ -61,7 +62,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.settings = settings
         self.folder = str(Path(folder).resolve())
-        self.setWindowTitle("MediaSort")
+        self.setWindowTitle(tr("main_window.title"))
         self.setStyleSheet("background-color: black;")
 
         self.stack = QStackedWidget(self)
@@ -146,7 +147,7 @@ class MainWindow(QMainWindow):
         if self.media_items:
             self._show_current()
         else:
-            self._show_message("Brak plikow multimedialnych w folderze.")
+            self._show_message(tr("main_window.no_media_in_folder"))
 
     # ------------------------------------------------------------------
     # Navigation
@@ -197,7 +198,7 @@ class MainWindow(QMainWindow):
         if self.media_items:
             self._show_current()
         else:
-            self._show_message("Brak plikow multimedialnych w folderze.")
+            self._show_message(tr("main_window.no_media_in_folder"))
 
     def browse_custom(self, media_items, folder_for_context=None):
         """Show a custom, precomputed list of (path, kind) files - used by
@@ -216,7 +217,7 @@ class MainWindow(QMainWindow):
         if self.media_items:
             self._show_current()
         else:
-            self._show_message("Brak plikow spelniajacych wybrane kryteria.")
+            self._show_message(tr("main_window.no_matching_media"))
 
     def enter_tag_browse_mode(self, tag_name):
         """Switch to "tag browse" mode (Alt+T): next/prev now walk through
@@ -256,7 +257,7 @@ class MainWindow(QMainWindow):
             self._show_tag_instance()
             return
         if not self.media_items:
-            self._show_message("Brak wiecej plikow.")
+            self._show_message(tr("main_window.no_more_media"))
             return
         path, kind = self.media_items[self.current_index]
         self.video_viewer.stop()
@@ -271,13 +272,13 @@ class MainWindow(QMainWindow):
             self.time_label.show()
             self._update_timestamp_tags()
             self._update_time_label()
-        self.setWindowTitle(f"MediaSort - {os.path.basename(path)}")
+        self.setWindowTitle(tr("main_window.title_with_file", filename=os.path.basename(path)))
         self._update_file_info_label()
         self._update_selection_indicator()
 
     def _show_tag_instance(self):
         if not self.tag_mode_instances:
-            self._show_message("Brak plikow z tym tagiem.")
+            self._show_message(tr("main_window.no_files_with_tag"))
             return
         path, timestamp_sec = self.tag_mode_instances[self.tag_mode_index]
 
@@ -288,7 +289,7 @@ class MainWindow(QMainWindow):
             self.tags_db.remove_file(path)
             self.tag_mode_instances = [inst for inst in self.tag_mode_instances if inst[0] != path]
             if not self.tag_mode_instances:
-                self._show_message("Brak plikow z tym tagiem.")
+                self._show_message(tr("main_window.no_files_with_tag"))
                 return
             if self.tag_mode_index >= len(self.tag_mode_instances):
                 self.tag_mode_index = 0
@@ -322,7 +323,11 @@ class MainWindow(QMainWindow):
             self.time_label.hide()
             self._clear_timestamp_tags()
 
-        self.setWindowTitle(f"MediaSort - {os.path.basename(path)} [tag: {self.tag_mode_name}]")
+        self.setWindowTitle(tr(
+            "main_window.title_with_tag",
+            filename=os.path.basename(path),
+            tag=self.tag_mode_name,
+        ))
         self._update_file_info_label()
         self._update_selection_indicator()
 
@@ -340,20 +345,33 @@ class MainWindow(QMainWindow):
         if self.tag_mode_active:
             x = self.tag_mode_index + 1
             y = len(self.tag_mode_instances)
-            text = f"{filename} ({x}/{y} -tag:{self.tag_mode_name})"
+            text = tr(
+                "main_window.file_info_tag",
+                filename=filename, x=x, y=y, tag=self.tag_mode_name,
+            )
         elif self.filter_active:
             selected_list = [p for p, _k in self.media_items if p in self.selected_paths]
             if path in selected_list:
                 x = selected_list.index(path) + 1
                 y = len(selected_list)
-                text = f"{filename} ({x}/{y} -selected)"
+                text = tr("main_window.file_info_selected", filename=filename, x=x, y=y)
             else:
                 # Edge case: filter is on but the current file somehow
                 # isn't selected (e.g. it was just deselected). Fall back
                 # to the normal counter until the next filtered navigation.
-                text = f"{filename} ({self.current_index + 1}/{len(self.media_items)})"
+                text = tr(
+                    "main_window.file_info",
+                    filename=filename,
+                    x=self.current_index + 1,
+                    y=len(self.media_items),
+                )
         else:
-            text = f"{filename} ({self.current_index + 1}/{len(self.media_items)})"
+            text = tr(
+                "main_window.file_info",
+                filename=filename,
+                x=self.current_index + 1,
+                y=len(self.media_items),
+            )
 
         self.file_info_label.setText(text)
         self.file_info_label.adjustSize()
@@ -390,7 +408,14 @@ class MainWindow(QMainWindow):
             key=lambda tag: tag[1],
         )
         for name, ts in timestamp_tags:
-            button = QPushButton(f"{name}@{_format_ms(int(ts) * 1000)}", self.timestamp_tags_widget)
+            button = QPushButton(
+                tr(
+                    "main_window.timestamp_tag_button",
+                    name=name,
+                    time=_format_ms(int(ts) * 1000),
+                ),
+                self.timestamp_tags_widget,
+            )
             button.setCursor(Qt.PointingHandCursor)
             self._set_timestamp_tag_button_active(button, False)
             # Seek on press rather than release: this makes the action
@@ -563,7 +588,7 @@ class MainWindow(QMainWindow):
         ]
 
         if not self.media_items:
-            self._show_message("Brak wiecej plikow.")
+            self._show_message(tr("main_window.no_more_media"))
             return
 
         if current_was_moved:

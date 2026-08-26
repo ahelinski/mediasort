@@ -25,6 +25,8 @@ import time
 from pathlib import Path
 from typing import Self
 
+from .i18n import tr_plural
+
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = APP_DIR / "tags.db"
 
@@ -258,7 +260,7 @@ class TagsDatabase:
 
         if len(paths) > MAX_FILES_FOR_TAG_COUNTS:
             raise ValueError(
-                f"Można policzyć tagi najwyżej dla {MAX_FILES_FOR_TAG_COUNTS} plików."
+                tr_plural("tags_db.max_files_error", MAX_FILES_FOR_TAG_COUNTS)
             )
         if not paths:
             return {}

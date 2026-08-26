@@ -3,6 +3,8 @@ from PySide6.QtWidgets import QWidget, QLabel, QVBoxLayout
 from PySide6.QtGui import QPixmap, QImageReader
 from PySide6.QtCore import Qt
 
+from .i18n import tr
+
 
 class ImageViewer(QWidget):
     def __init__(self, parent=None):
@@ -46,6 +48,6 @@ class ImageViewer(QWidget):
             self.label.setPixmap(scaled)
         else:
             self.label.setPixmap(QPixmap())
-            self.label.setText("Nie mozna wczytac obrazu")
+            self.label.setText(tr("image_viewer.load_error"))
             self.label.setStyleSheet("background-color: black; color: white; font-size: 18px;")
 

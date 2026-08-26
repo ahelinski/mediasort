@@ -18,16 +18,34 @@ from pathlib import Path
 from PySide6.QtWidgets import QApplication
 
 from mediasort.config import Settings
+from mediasort.i18n import tr
 from mediasort.main_window import MainWindow
 
 
+def _peek_settings_path(argv):
+    """Find the settings file path from the raw argv before argparse runs,
+    so the UI language can be loaded before any translated text is built."""
+    for i, arg in enumerate(argv):
+        if arg == "--settings":
+            if i + 1 < len(argv):
+                return argv[i + 1]
+            return None
+        if arg.startswith("--settings="):
+            return arg.split("=", 1)[1]
+    return None
+
+
 def main():
-    parser = argparse.ArgumentParser(description="MediaSort - przegladarka i sorter mediow")
+    # Load settings (and with them the UI language) before argparse, so
+    # even the CLI help/error texts come from the active translation.
+    settings = Settings(path=_peek_settings_path(sys.argv[1:]))
+
+    parser = argparse.ArgumentParser(description=tr("main.description"))
     parser.add_argument(
         "path", nargs="?", default=".",
-        help="Folder z plikami multimedialnymi, albo sciezka do konkretnego zdjecia/wideo"
+        help=tr("main.path_help")
     )
-    parser.add_argument("--settings", default=None, help="Sciezka do pliku settings.json")
+    parser.add_argument("--settings", default=None, help=tr("main.settings_help"))
     args = parser.parse_args()
 
     target = Path(args.path).resolve()
@@ -39,7 +57,7 @@ def main():
     elif target.is_dir():
         folder = target
     else:
-        print(f"Blad: '{target}' nie jest prawidlowym plikiem ani folderem.")
+        print(tr("main.path_error", target=target))
         sys.exit(1)
 
     app = QApplication(sys.argv)

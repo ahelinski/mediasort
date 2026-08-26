@@ -19,38 +19,46 @@ DEFAULT_SETTINGS = {
     # General navigation and action keys - active whenever an image or
     # video is being displayed (i.e. whenever the file operation dialog
     # ISN'T open). Each action accepts one OR MORE trigger strings
-    # (keyboard shortcuts and/or mouse buttons).
+    # (keyboard shortcuts and/or mouse buttons/wheel).
     #
     # IMPORTANT PRIORITY RULE: if a physical key is bound both here and in
     # a context-specific section below (currently just video_keys), the
     # context-specific binding wins WHILE that context is active. E.g. by
     # default "Right" is bound to both navigation_keys.next and
-    # video_keys.seek_forward - while viewing a video, "Right" seeks;
-    # while viewing an image, "Right" advances to the next file. "PgDown"
-    # is only bound here, so it always advances to the next file
-    # regardless of whether an image or a video is showing.
+    # video_keys.small_seek_forward - while viewing a video, "Right" seeks
+    # by the small interval; while viewing an image, "Right" advances to
+    # the next file. "PgDown" is only bound here, so it always advances to
+    # the next file regardless of whether an image or a video is showing.
     "navigation_keys": {
         "quit": ["Escape"],
-        "next": ["Right", "PgDown"],
-        "prev": ["Left", "PgUp"],
+        "next": ["Right", "PgDown", "MouseWheelUp", "MouseForward"],
+        "prev": ["Left", "PgUp", "MouseWheelDown", "MouseBack"],
         "show_copy_dialog": ["C"],
         "show_move_dialog": ["M"],
         "show_browse_dialog": ["O"],
-        "toggle_select": ["/"],
+        "toggle_select": ["/", "MouseMiddle"],
         "toggle_filter": ["F"],
         "show_tag_selected_dialog": ["Ctrl+T"],
         "show_manage_tags_dialog": ["T"],
         "show_browse_tag_dialog": ["Alt+T"]
     },
     # Keys active only while a VIDEO is being displayed - see the priority
-    # rule above.
+    # rule above. Seeking has three steps, each with its own key binding
+    # and interval: small (plain arrow keys), normal (Shift+arrow) and
+    # big (Ctrl+arrow).
     "video_keys": {
-        "seek_forward": ["Right"],
-        "seek_backward": ["Left"],
+        "small_seek_forward": ["Right"],
+        "small_seek_backward": ["Left"],
+        "seek_forward": ["Shift+Right"],
+        "seek_backward": ["Shift+Left"],
+        "big_seek_forward": ["Ctrl+Right"],
+        "big_seek_backward": ["Ctrl+Left"],
+        "seek_small_seconds": 5,
         "seek_seconds": 15,
+        "seek_big_seconds": 60,
         "toggle_pause": ["Space", "MouseLeft"],
-        "next_timestamp_tag": ["E"],
-        "prev_timestamp_tag": ["Q"]
+        "next_timestamp_tag": ["E", "MouseWheelUp"],
+        "prev_timestamp_tag": ["Q", "MouseWheelDown"]
     },
     # Keys active only while the file operation (copy/move/open) dialog is
     # open.
@@ -73,12 +81,19 @@ DEFAULT_SETTINGS = {
     # subfolders, 2 = also their subfolders, etc.). Kept small by default
     # to avoid scanning huge trees.
     "browse_subfolder_depth": 1,
+    # Persisted runtime state below - user-specific, so fresh installs
+    # start with the neutral values (the live settings.json overrides
+    # them anyway via the deep merge).
     "history": [],
     "favourites": [],
     "last_dialog_mode": "relative",
     "last_used_location": None,
     "image_extensions": [".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tif", ".tiff"],
-    "video_extensions": [".mp4", ".avi", ".mkv", ".mov", ".webm", ".m4v", ".wmv", ".flv"]
+    "video_extensions": [".mp4", ".avi", ".mkv", ".mov", ".webm", ".m4v", ".wmv", ".flv"],
+    # Quick-assign tags: keyboard key -> tag name (e.g. "1": "TEST_1").
+    # Pressing the key assigns that tag to the current file (see
+    # MainWindow._handle_key_press).
+    "quick_tags": {"1": "Rating 1", "2": "Rating 2", "3": "Rating 3", "4": "Rating 4", "5": "Rating 5"}
 }
 
 

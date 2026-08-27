@@ -9,6 +9,7 @@ ms.desktop
 .idea/
 mediasort/tags.db
 mediasort/settings.json
+mediasort/log.txt
 *.jpg
 
 # C extensions

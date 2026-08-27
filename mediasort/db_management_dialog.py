@@ -5,12 +5,18 @@ distinct files, distinct tags) and offers three maintenance operations:
 
   * Compact - scan every file path in the database and delete the linked
     entries when the file no longer exists on disk (orphaned tags left
-    without any assignments are dropped as well).
+    without any assignments are dropped as well).  Paths that cannot be
+    checked because access is denied are presented to the user, who may
+    keep, delete, delete all remaining inaccessible entries, or abort.
   * Export to CSV - write every assignment as (tag, timestamp, path)
     rows without internal ids; a whole-file tag has an empty timestamp.
   * Import from CSV - append assignments from the same format, skipping
     rows that duplicate an existing assignment (same tag, same file, and
     the same timestamp when one is given).
+
+Errors from any of the operations are shown in a message box and their
+details (with the full stack trace) are appended to log.txt in the
+application folder.
 """
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGroupBox,
@@ -80,6 +86,28 @@ class DbManagementDialog(QDialog):
     # ------------------------------------------------------------------
     # Operations
     # ------------------------------------------------------------------
+    def _resolve_inaccessible(self, path):
+        """Ask the user what to do with a stored path that cannot be
+        checked (no access to the file or folder).  Returns one of
+        "keep", "delete", "delete_all" or "abort" for TagsDatabase.compact."""
+        box = QMessageBox(self)
+        box.setWindowTitle(tr("db_manage.inaccessible_title"))
+        box.setText(tr("db_manage.inaccessible_ask", path=path))
+        no_btn = box.addButton(tr("db_manage.inaccessible_no"), QMessageBox.ButtonRole.RejectRole)
+        yes_btn = box.addButton(tr("db_manage.inaccessible_yes"), QMessageBox.ButtonRole.AcceptRole)
+        all_btn = box.addButton(tr("db_manage.inaccessible_all"), QMessageBox.ButtonRole.AcceptRole)
+        abort_btn = box.addButton(tr("db_manage.inaccessible_abort"), QMessageBox.ButtonRole.DestructiveRole)
+        box.setDefaultButton(no_btn)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is yes_btn:
+            return "delete"
+        if clicked is all_btn:
+            return "delete_all"
+        if clicked is abort_btn:
+            return "abort"
+        return "keep"  # "Nie" or the dialog was closed without a choice
+
     def _compact(self):
         answer = QMessageBox.question(
             self, tr("db_manage.compact_title"), tr("db_manage.compact_ask"),
@@ -87,8 +115,20 @@ class DbManagementDialog(QDialog):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        removed_files, removed_entries, removed_tags = self.tags_db.compact()
+        try:
+            removed_files, removed_entries, removed_tags, aborted = self.tags_db.compact(
+                resolve_inaccessible=self._resolve_inaccessible
+            )
+        except Exception as e:
+            # Details were already written to log.txt by the database layer.
+            QMessageBox.critical(
+                self, tr("common.error_title"), tr("db_manage.compact_error", error=e)
+            )
+            return
         self._refresh_stats()
+        if aborted:
+            QMessageBox.information(self, tr("db_manage.compact_title"), tr("db_manage.compact_aborted"))
+            return
         QMessageBox.information(
             self, tr("db_manage.compact_title"),
             tr(
@@ -105,7 +145,8 @@ class DbManagementDialog(QDialog):
             return
         try:
             count = self.tags_db.export_csv(path)
-        except OSError as e:
+        except Exception as e:
+            # Details were already written to log.txt by the database layer.
             QMessageBox.critical(
                 self, tr("common.error_title"), tr("db_manage.export_error", error=e)
             )
@@ -123,7 +164,8 @@ class DbManagementDialog(QDialog):
             return
         try:
             added, skipped = self.tags_db.import_csv(path)
-        except (OSError, UnicodeDecodeError) as e:
+        except Exception as e:
+            # Details were already written to log.txt by the database layer.
             QMessageBox.critical(
                 self, tr("common.error_title"), tr("db_manage.import_error", error=e)
             )

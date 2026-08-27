@@ -21,12 +21,14 @@ Schema:
       error.
 """
 import csv
+import errno
 import sqlite3
 import time
 from pathlib import Path
 from typing import Self
 
 from .i18n import tr_plural
+from .app_log import log_exception
 
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = APP_DIR / "tags.db"
@@ -34,6 +36,29 @@ DEFAULT_DB_PATH = APP_DIR / "tags.db"
 MAX_TAG_LENGTH = 16
 WHOLE_FILE_MARKER = -1
 MAX_FILES_FOR_TAG_COUNTS = 500
+
+
+def _path_status(path):
+    """Classify a stored file path for compacting:
+
+      "ok"       - the file exists and is accessible,
+      "missing"  - the file (or a parent folder) no longer exists,
+      "no_access" - the path cannot be checked because access is denied
+                   or the path itself is malformed - the user should
+                   decide what to do with its entries.
+    """
+    try:
+        Path(path).stat()
+        return "ok"
+    except FileNotFoundError:
+        return "missing"
+    except OSError as e:
+        # A path component is not a directory - the file cannot exist.
+        if e.errno == errno.ENOTDIR:
+            return "missing"
+        return "no_access"
+    except (TypeError, ValueError):
+        return "no_access"
 
 
 class TagsDatabase:
@@ -319,42 +344,89 @@ class TagsDatabase:
         tags = self.conn.execute("SELECT COUNT(*) AS n FROM tags").fetchone()["n"]
         return {"entries": entries, "files": files, "tags": tags}
 
-    def compact(self):
-        """Remove every assignment whose file no longer exists on disk,
-        then drop tags left without any assignments.  Returns
-        (removed_files, removed_entries, removed_tags)."""
-        cur = self.conn.execute("SELECT DISTINCT file_path FROM tag_assignments")
-        missing = [r["file_path"] for r in cur.fetchall() if not Path(r["file_path"]).exists()]
-        removed_entries = 0
-        for file_path in missing:
-            removed_entries += self.conn.execute(
-                "DELETE FROM tag_assignments WHERE file_path = ?", (file_path,)
+    def compact(self, resolve_inaccessible=None):
+        """Remove assignments whose file no longer exists on disk, then
+        drop tags left without any assignments.
+
+        ``resolve_inaccessible`` is an optional callable(path) invoked for
+        every stored path that cannot be checked because access is denied
+        (or the path is malformed).  It must return one of:
+
+          * "keep"       - keep this file's entries,
+          * "delete"     - delete this file's entries,
+          * "delete_all" - delete this file's entries and every further
+                           inaccessible file's entries without asking again,
+          * "abort"      - stop compacting without deleting anything.
+
+        Without a callback, inaccessible entries are kept.  Returns
+        (removed_files, removed_entries, removed_tags, aborted)."""
+        try:
+            cur = self.conn.execute("SELECT DISTINCT file_path FROM tag_assignments")
+            stored_paths = [r["file_path"] for r in cur.fetchall()]
+
+            missing, inaccessible = [], []
+            for path in stored_paths:
+                status = _path_status(path)
+                if status == "missing":
+                    missing.append(path)
+                elif status == "no_access":
+                    inaccessible.append(path)
+
+            delete_paths = list(missing)
+            auto_delete = False
+            for path in inaccessible:
+                if auto_delete:
+                    delete_paths.append(path)
+                    continue
+                if resolve_inaccessible is None:
+                    continue  # no UI available - keep the entries
+                decision = resolve_inaccessible(path)
+                if decision == "delete_all":
+                    auto_delete = True
+                    delete_paths.append(path)
+                elif decision == "delete":
+                    delete_paths.append(path)
+                elif decision == "abort":
+                    return 0, 0, 0, True
+                # "keep" (or anything unrecognized) -> keep the entries
+
+            removed_entries = 0
+            for file_path in delete_paths:
+                removed_entries += self.conn.execute(
+                    "DELETE FROM tag_assignments WHERE file_path = ?", (file_path,)
+                ).rowcount
+            removed_tags = self.conn.execute(
+                "DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM tag_assignments)"
             ).rowcount
-        removed_tags = self.conn.execute(
-            "DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM tag_assignments)"
-        ).rowcount
-        self.conn.commit()
-        return len(missing), removed_entries, removed_tags
+            self.conn.commit()
+        except Exception as e:
+            log_exception("compact", e)
+            raise
+        return len(delete_paths), removed_entries, removed_tags, False
 
     def export_csv(self, csv_path):
         """Write every assignment to `csv_path` as (tag, timestamp, path)
         rows - no internal ids.  A whole-file tag has an empty timestamp,
         a video-timestamp tag has the integer second.  Returns the number
         of exported rows."""
-        rows = self.conn.execute(
-            """
-            SELECT t.name AS name, a.timestamp_sec AS ts, a.file_path AS path
-            FROM tag_assignments a JOIN tags t ON t.id = a.tag_id
-            ORDER BY t.name COLLATE NOCASE ASC, a.file_path ASC, a.timestamp_sec ASC
-            """
-        ).fetchall()
-        with open(csv_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.writer(f)
-            writer.writerow(["tag", "timestamp", "path"])
-            for r in rows:
-                ts = "" if r["ts"] == WHOLE_FILE_MARKER else str(r["ts"])
-                writer.writerow([r["name"], ts, r["path"]])
-        return len(rows)
+        try:
+            rows = self.conn.execute(
+                """
+                SELECT t.name AS name, a.timestamp_sec AS ts, a.file_path AS path
+                FROM tag_assignments a JOIN tags t ON t.id = a.tag_id
+                ORDER BY t.name COLLATE NOCASE ASC, a.file_path ASC, a.timestamp_sec ASC
+                """
+            ).fetchall()
+            with open(csv_path, "w", newline="", encoding="utf-8") as f:
+                writer = csv.writer(f)
+                writer.writerow(["tag", "timestamp", "path"])
+                for r in rows:
+                    ts = "" if r["ts"] == WHOLE_FILE_MARKER else str(r["ts"])
+                    writer.writerow([r["name"], ts, r["path"]])
+            return len(rows)
+        except Exception as e:
+            log_exception("export_csv", e)
+            raise
 
     def import_csv(self, csv_path):
         """Append assignments from `csv_path`, expecting the same
@@ -363,34 +435,38 @@ class TagsDatabase:
         tag, same file, and the same timestamp when one is given - are
         silently skipped instead of creating a duplicate.  Returns
         (added, skipped)."""
-        with open(csv_path, newline="", encoding="utf-8-sig") as f:
-            rows = list(csv.reader(f))
-        if rows and rows[0] and rows[0][0].strip().casefold() == "tag":
-            rows = rows[1:]  # our own export header
-        added = 0
-        skipped = 0
-        for row in rows:
-            if len(row) < 3:
-                skipped += 1
-                continue
-            tag = row[0].strip()
-            file_path = row[2].strip()
-            timestamp_text = row[1].strip()
-            if not tag or not file_path:
-                skipped += 1
-                continue
-            timestamp_sec = None
-            if timestamp_text:
-                try:
-                    timestamp_sec = int(timestamp_text)
-                except ValueError:
+        try:
+            with open(csv_path, newline="", encoding="utf-8-sig") as f:
+                rows = list(csv.reader(f))
+            if rows and rows[0] and rows[0][0].strip().casefold() == "tag":
+                rows = rows[1:]  # our own export header
+            added = 0
+            skipped = 0
+            for row in rows:
+                if len(row) < 3:
                     skipped += 1
                     continue
-            if self.assign_tag(tag, file_path, timestamp_sec):
-                added += 1
-            else:
-                skipped += 1
-        return added, skipped
+                tag = row[0].strip()
+                file_path = row[2].strip()
+                timestamp_text = row[1].strip()
+                if not tag or not file_path:
+                    skipped += 1
+                    continue
+                timestamp_sec = None
+                if timestamp_text:
+                    try:
+                        timestamp_sec = int(timestamp_text)
+                    except ValueError:
+                        skipped += 1
+                        continue
+                if self.assign_tag(tag, file_path, timestamp_sec):
+                    added += 1
+                else:
+                    skipped += 1
+            return added, skipped
+        except Exception as e:
+            log_exception("import_csv", e)
+            raise
 
     def close(self):
         self.conn.close()

@@ -110,14 +110,22 @@ class BrowseDialog(QDialog):
         self._apply_folder_enabled()
         self._apply_tag_enabled()
 
-        self.folder_list_ctrl.reload(auto_select=self.browse_folder_cb.isChecked())
+        # Restore the previous folder selection.  In relative mode the
+        # context-based auto-select already picks the restored folder; in
+        # History/Favourites the current folder is never auto-selected, so
+        # re-select the restored path explicitly (when it is in the list).
+        restored_folder = self._session["folder_path"] or self.current_folder
+        self.folder_list_ctrl.reload(
+            select_path=restored_folder if self.folder_list_ctrl.mode != "relative" else None,
+            auto_select=self.browse_folder_cb.isChecked(),
+        )
         self._reload_tag_list()
         if self._session["tag"]:
             for row in range(self.tag_list.count()):
                 if self.tag_list.item(row).data(Qt.UserRole) == self._session["tag"]:
                     self.tag_list.setCurrentRow(row)
                     break
-        self.location_edit.setText(self._session["folder_path"] or self.current_folder)
+        self.location_edit.setText(restored_folder)
         self._update_match_count()
 
     def _shortcut_labels(self):

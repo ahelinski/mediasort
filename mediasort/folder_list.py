@@ -120,13 +120,16 @@ class FolderListController:
             self.list_widget.setCurrentRow(self._auto_select_row())
 
     def _auto_select_row(self):
-        """Prefer the row matching the context folder (the current folder
-        in relative mode).  When the context folder is the folder we are
-        currently "inside" (right after descending), that row is the
-        '...' entry, which now carries the view root's own path."""
-        for row in range(self.list_widget.count()):
-            if self.list_widget.item(row).data(Qt.UserRole) == self._current_dir:
-                return row
+        """Row to select when the list is (re)loaded without an explicit
+        selection.  Only in RELATIVE mode is the current folder itself
+        preferred (right after descending, that row is the '...' entry,
+        which carries the view root's own path).  In History and
+        Favourites the current folder is deliberately NOT auto-selected -
+        the first row is used instead."""
+        if self.mode == "relative":
+            for row in range(self.list_widget.count()):
+                if self.list_widget.item(row).data(Qt.UserRole) == self._current_dir:
+                    return row
         return 0
 
     def mode_display_name(self):

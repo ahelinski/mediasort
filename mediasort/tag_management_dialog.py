@@ -138,7 +138,16 @@ class TagManagementDialog(QDialog):
 
     def _reload_file_tags(self):
         self.file_tags_list.clear()
-        for name, ts in self.tags_db.file_tags(self.current_file):
+        tags = self.tags_db.file_tags(self.current_file)
+        # Whole-file tags (no timestamp) first, alphabetically; then
+        # timestamp tags from the smallest to the largest timestamp, and
+        # alphabetically within the same timestamp.
+        tags.sort(key=lambda t: (
+            0 if t[1] is None else 1,          # regular tags before timestamp tags
+            t[1] if t[1] is not None else 0,   # timestamp ascending
+            t[0].lower(),                      # alphabetical (case-insensitive)
+        ))
+        for name, ts in tags:
             text = name if ts is None else f"{name}@{_format_ts(ts)}"
 
             row_widget = QWidget(self.file_tags_list)

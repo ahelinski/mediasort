@@ -19,7 +19,7 @@ from PySide6.QtGui import QKeyEvent, QMouseEvent
 from . import styles
 from .file_scanner import kind_for_path
 from .i18n import tr
-from .key_utils import matches_any
+from .key_utils import matches_any, shortcut_label
 from .selection_preview import SelectionPreviewWidget
 from .tags_db import MAX_TAG_LENGTH
 
@@ -37,6 +37,17 @@ class TagAssignDialog(QDialog):
         self.setWindowTitle(tr("tag_assign.title"))
         self.resize(880, 560)
         self.setStyleSheet(styles.DIALOG)
+
+        # Shortcut labels for the UI texts.  Assign (Enter) and cancel
+        # (Esc) are handled directly and are not configurable; invert /
+        # select-all follow the configured "file_dialog" bindings.
+        fd = self.settings.get("file_dialog", default={})
+        self._shortcuts = {
+            "enter_key": "Enter",
+            "cancel_key": "Esc",
+            "invert_key": shortcut_label(fd.get("invert_selection", ["I"])),
+            "select_all_key": shortcut_label(fd.get("select_all", ["A"])),
+        }
 
         self._build_ui()
         self._reload_tag_list()
@@ -78,17 +89,17 @@ class TagAssignDialog(QDialog):
         layout.addWidget(self.tag_list)
 
         btn_row = QHBoxLayout()
-        self.assign_btn = QPushButton(tr("tag_assign.assign_btn"), self)
+        self.assign_btn = QPushButton(tr("tag_assign.assign_btn", **self._shortcuts), self)
         self.assign_btn.setDefault(True)
         self.assign_btn.clicked.connect(self._perform_assign)
-        self.cancel_btn = QPushButton(tr("tag_assign.cancel_btn"), self)
+        self.cancel_btn = QPushButton(tr("tag_assign.cancel_btn", **self._shortcuts), self)
         self.cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(self.assign_btn)
         btn_row.addWidget(self.cancel_btn)
         layout.addLayout(btn_row)
 
         hint = QLabel(
-            tr("tag_assign.hint"),
+            tr("tag_assign.hint", **self._shortcuts),
             self,
         )
         hint.setStyleSheet(styles.HINT)
@@ -123,8 +134,8 @@ class TagAssignDialog(QDialog):
         layout.addWidget(context_box)
 
         action_row = QHBoxLayout()
-        self.invert_btn = QPushButton(tr("tag_assign.invert_btn"), self)
-        self.select_all_btn = QPushButton(tr("tag_assign.select_all_btn"), self)
+        self.invert_btn = QPushButton(tr("tag_assign.invert_btn", **self._shortcuts), self)
+        self.select_all_btn = QPushButton(tr("tag_assign.select_all_btn", **self._shortcuts), self)
         self.invert_btn.clicked.connect(self._invert_selection)
         self.select_all_btn.clicked.connect(self._select_all)
         action_row.addWidget(self.invert_btn)

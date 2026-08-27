@@ -28,6 +28,13 @@ class TagBrowseDialog(QDialog):
         self.resize(560, 480)
         self.setStyleSheet(styles.DIALOG)
 
+        # Shortcut labels for the UI texts - both actions here (Enter /
+        # Esc) are handled directly and are not configurable.
+        self._shortcuts = {
+            "enter_key": "Enter",
+            "cancel_key": "Esc",
+        }
+
         self._build_ui()
         self._reload_tag_list()
         self._refresh_tag_preview()
@@ -56,16 +63,16 @@ class TagBrowseDialog(QDialog):
         layout.addWidget(preview_box)
 
         btn_row = QHBoxLayout()
-        self.open_btn = QPushButton(tr("tag_browse.open_btn"), self)
+        self.open_btn = QPushButton(tr("tag_browse.open_btn", **self._shortcuts), self)
         self.open_btn.setDefault(True)
         self.open_btn.clicked.connect(self._confirm)
-        self.cancel_btn = QPushButton(tr("tag_browse.cancel_btn"), self)
+        self.cancel_btn = QPushButton(tr("tag_browse.cancel_btn", **self._shortcuts), self)
         self.cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(self.open_btn)
         btn_row.addWidget(self.cancel_btn)
         layout.addLayout(btn_row)
 
-        hint = QLabel(tr("tag_browse.hint"), self)
+        hint = QLabel(tr("tag_browse.hint", **self._shortcuts), self)
         hint.setStyleSheet(styles.HINT)
         layout.addWidget(hint)
 

@@ -22,6 +22,7 @@ from .tags_db import TagsDatabase
 from .tag_assign_dialog import TagAssignDialog
 from .tag_management_dialog import TagManagementDialog
 from .tag_browse_dialog import TagBrowseDialog
+from .db_management_dialog import DbManagementDialog
 
 
 def _format_ms(ms):
@@ -893,6 +894,11 @@ class MainWindow(QMainWindow):
             self._open_tag_browse_dialog()
             return True
 
+        # Database management
+        if matches_any(event, nav_keys.get("show_db_management_dialog", ["F10"])):
+            self._open_db_management_dialog()
+            return True
+
         # Quick Tags
         matching_quick_tag = matching_trigger(event, quick_tags.keys())
         if matching_quick_tag:
@@ -1009,6 +1015,15 @@ class MainWindow(QMainWindow):
 
         if dialog.confirmed and dialog.selected_tag:
             self.enter_tag_browse_mode(dialog.selected_tag)
+
+    @_pause_video_while_open
+    def _open_db_management_dialog(self):
+        self._dialog_open = True
+        dialog = DbManagementDialog(tags_db=self.tags_db, parent=self)
+        self._active_dialog = dialog
+        dialog.exec()
+        self._dialog_open = False
+        self._active_dialog = None
 
     def closeEvent(self, event):
         app = QApplication.instance()

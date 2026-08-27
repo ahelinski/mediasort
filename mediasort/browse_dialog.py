@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
-from .key_utils import matches_any
+from .key_utils import matches_any, shortcut_label
 from .file_scanner import scan_media, scan_media_recursive, kind_for_path
 from .folder_list import FolderListController
 from .i18n import tr, tr_plural
@@ -79,6 +79,10 @@ class BrowseDialog(QDialog):
         self.resize(1020, 580)
         self.setStyleSheet(styles.DIALOG)
 
+        # Shortcut labels for the UI texts, filled from the configured
+        # "file_dialog" key bindings (first trigger of each action).
+        self._shortcuts = self._shortcut_labels()
+
         self._build_ui()
 
         # Shared folder-list browsing (Relative / History / Favourites).
@@ -116,6 +120,20 @@ class BrowseDialog(QDialog):
         self.location_edit.setText(self._session["folder_path"] or self.current_folder)
         self._update_match_count()
 
+    def _shortcut_labels(self):
+        """Shortcut placeholder values for the UI texts, taken from the
+        configured "file_dialog" key bindings (first trigger per action).
+        The open action is the plain Return key and is not configurable."""
+        fd = self.settings.get("file_dialog", default={})
+        return {
+            "enter_key": "Enter",
+            "cancel_key": shortcut_label(fd.get("cancel", ["Escape"])),
+            "edit_key": shortcut_label(fd.get("edit_location", ["F2"])),
+            "relative_key": shortcut_label(fd.get("mode_relative", ["R"])),
+            "history_key": shortcut_label(fd.get("mode_history", ["H"])),
+            "favourites_key": shortcut_label(fd.get("mode_favourites", ["F"])),
+        }
+
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
@@ -133,17 +151,17 @@ class BrowseDialog(QDialog):
         outer.addWidget(self.match_label)
 
         btn_row = QHBoxLayout()
-        self.open_btn = QPushButton(tr("browse_dialog.open_btn"), self)
+        self.open_btn = QPushButton(tr("browse_dialog.open_btn", **self._shortcuts), self)
         self.open_btn.setDefault(True)
         self.open_btn.clicked.connect(self._confirm)
-        self.cancel_btn = QPushButton(tr("browse_dialog.cancel_btn"), self)
+        self.cancel_btn = QPushButton(tr("browse_dialog.cancel_btn", **self._shortcuts), self)
         self.cancel_btn.clicked.connect(self.reject)
         btn_row.addWidget(self.open_btn)
         btn_row.addWidget(self.cancel_btn)
         outer.addLayout(btn_row)
 
         hint = QLabel(
-            tr("browse_dialog.hint"),
+            tr("browse_dialog.hint", **self._shortcuts),
             self,
         )
         hint.setStyleSheet(styles.HINT)

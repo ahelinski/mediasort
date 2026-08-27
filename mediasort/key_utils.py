@@ -154,3 +154,35 @@ def matching_trigger(event, triggers) -> str:
         if matches(event, t):
             return t
     return None
+
+
+def shortcut_label(triggers, default=None) -> str:
+    """Return the first trigger from `triggers` (a list or a single
+    string), formatted for display in UI texts (e.g. "Alt+C", "Esc",
+    "Enter").  Falls back to `default` (also a list or single string)
+    when `triggers` is empty.  Used to fill shortcut placeholders in
+    translated strings, so button labels and hints always show the
+    currently configured key of an action instead of a hardcoded one.
+    """
+    def pick(t):
+        if not t:
+            return None
+        return t[0] if isinstance(t, list) else t
+
+    trigger = pick(triggers) or pick(default)
+    if not trigger:
+        return ""
+    # Mouse / wheel triggers are not representable as key names - show the
+    # configured name verbatim.
+    if _is_mouse_trigger(trigger) or _is_mouse_wheel(trigger):
+        return trigger
+    try:
+        seq = QKeySequence(trigger)
+        text = seq.toString(QKeySequence.PortableText)
+        if text:
+            # Keyboard-label friendly: the key is printed "Enter" even
+            # though Qt's portable name for it is "Return".
+            return text.replace("Return", "Enter")
+    except (TypeError, ValueError):
+        pass
+    return trigger

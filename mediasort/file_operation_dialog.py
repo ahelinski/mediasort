@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QKeyEvent, QMouseEvent
 
-from .key_utils import matches_any
+from .key_utils import matches_any, shortcut_label
 from .file_scanner import scan_media
 from .folder_list import FolderListController
 from .i18n import tr
@@ -66,6 +66,10 @@ class FileOperationDialog(QDialog):
         # system palette.
         self.setStyleSheet(styles.DIALOG)
 
+        # Shortcut labels for the UI texts, filled from the configured
+        # "file_dialog" key bindings (first trigger of each action).
+        self._shortcuts = self._shortcut_labels()
+
         self._build_ui()
 
         # Shared folder-list browsing (Relative / History / Favourites).
@@ -88,6 +92,24 @@ class FileOperationDialog(QDialog):
 
     def create(self, /, arg__1: int | None = ..., initializeWindow: bool = ..., destroyOldWindow: bool = ...) -> None:
         super().create(arg__1, initializeWindow, destroyOldWindow)
+
+    def _shortcut_labels(self):
+        """Shortcut placeholder values for the UI texts, taken from the
+        configured "file_dialog" key bindings (first trigger per action)."""
+        fd = self.settings.get("file_dialog", default={})
+        return {
+            "copy_key": shortcut_label(fd.get("copy", ["Alt+C"])),
+            "move_key": shortcut_label(fd.get("move", ["Alt+M"])),
+            "invert_key": shortcut_label(fd.get("invert_selection", ["I"])),
+            "select_all_key": shortcut_label(fd.get("select_all", ["A"])),
+            "relative_key": shortcut_label(fd.get("mode_relative", ["R"])),
+            "history_key": shortcut_label(fd.get("mode_history", ["H"])),
+            "favourites_key": shortcut_label(fd.get("mode_favourites", ["F"])),
+            "edit_key": shortcut_label(fd.get("edit_location", ["F2"])),
+            "confirm_key": shortcut_label(fd.get("confirm_action", ["Ctrl+Return"])),
+            "fav_key": shortcut_label(fd.get("toggle_favourite", ["Ctrl+D"])),
+            "cancel_key": shortcut_label(fd.get("cancel", ["Escape"])),
+        }
 
     # ------------------------------------------------------------------
     # UI construction
@@ -134,8 +156,8 @@ class FileOperationDialog(QDialog):
         layout.addWidget(self.list_widget)
 
         btn_row = QHBoxLayout()
-        self.copy_btn = QPushButton(tr("file_dialog.copy_btn"), self)
-        self.move_btn = QPushButton(tr("file_dialog.move_btn"), self)
+        self.copy_btn = QPushButton(tr("file_dialog.copy_btn", **self._shortcuts), self)
+        self.move_btn = QPushButton(tr("file_dialog.move_btn", **self._shortcuts), self)
         self.fav_btn = QPushButton(tr("file_dialog.fav_btn"), self)
         self.copy_btn.clicked.connect(lambda: self._perform("copy"))
         self.move_btn.clicked.connect(lambda: self._perform("move"))
@@ -148,7 +170,7 @@ class FileOperationDialog(QDialog):
         layout.addLayout(btn_row)
 
         hint = QLabel(
-            tr("file_dialog.hint"),
+            tr("file_dialog.hint", **self._shortcuts),
             self,
         )
         hint.setWordWrap(True)
@@ -169,8 +191,8 @@ class FileOperationDialog(QDialog):
         layout.addWidget(context_box)
 
         action_row = QHBoxLayout()
-        self.invert_btn = QPushButton(tr("file_dialog.invert_btn"), self)
-        self.select_all_btn = QPushButton(tr("file_dialog.select_all_btn"), self)
+        self.invert_btn = QPushButton(tr("file_dialog.invert_btn", **self._shortcuts), self)
+        self.select_all_btn = QPushButton(tr("file_dialog.select_all_btn", **self._shortcuts), self)
         self.invert_btn.clicked.connect(self._invert_selection)
         self.select_all_btn.clicked.connect(self._select_all)
         action_row.addWidget(self.invert_btn)

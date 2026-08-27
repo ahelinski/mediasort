@@ -43,6 +43,14 @@ class TagManagementDialog(QDialog):
         self.resize(600, 480)
         self.setStyleSheet(styles.DIALOG)
 
+        # Shortcut labels for the UI texts - all actions here (Enter /
+        # Shift+Enter / Esc) are handled directly and are not configurable.
+        self._shortcuts = {
+            "enter_key": "Enter",
+            "shift_enter_key": "Shift+Enter",
+            "cancel_key": "Esc",
+        }
+
         self._build_ui()
         self._reload_recent_tags()
         self._reload_file_tags()
@@ -80,26 +88,27 @@ class TagManagementDialog(QDialog):
         layout.addLayout(lists_row)
 
         btn_row = QHBoxLayout()
-        self.tag_file_btn = QPushButton(tr("tag_manage.tag_file_btn"), self)
+        self.tag_file_btn = QPushButton(tr("tag_manage.tag_file_btn", **self._shortcuts), self)
         self.tag_file_btn.setDefault(True)
         self.tag_file_btn.clicked.connect(self._tag_file)
         btn_row.addWidget(self.tag_file_btn)
 
-        self.tag_timestamp_btn = QPushButton(tr("tag_manage.tag_timestamp_btn"), self)
+        self.tag_timestamp_btn = QPushButton(tr("tag_manage.tag_timestamp_btn", **self._shortcuts), self)
         self.tag_timestamp_btn.clicked.connect(self._tag_timestamp)
         self.tag_timestamp_btn.setVisible(self.is_video)
         btn_row.addWidget(self.tag_timestamp_btn)
 
-        self.close_btn = QPushButton(tr("tag_manage.close_btn"), self)
+        self.close_btn = QPushButton(tr("tag_manage.close_btn", **self._shortcuts), self)
         self.close_btn.clicked.connect(self.accept)
         btn_row.addWidget(self.close_btn)
         layout.addLayout(btn_row)
 
-        hint_text = tr("tag_manage.hint")
+        hint_text = tr("tag_manage.hint", **self._shortcuts)
         if self.is_video:
             hint_text += tr(
                 "tag_manage.hint_timestamp",
                 time=_format_ts(self.current_timestamp_sec),
+                **self._shortcuts,
             )
         hint = QLabel(hint_text, self)
         hint.setStyleSheet(styles.HINT)

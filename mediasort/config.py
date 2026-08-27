@@ -40,7 +40,8 @@ DEFAULT_SETTINGS = {
         "toggle_filter": ["F"],
         "show_tag_selected_dialog": ["Ctrl+T"],
         "show_manage_tags_dialog": ["T"],
-        "show_browse_tag_dialog": ["Alt+T"]
+        "show_browse_tag_dialog": ["Alt+T"],
+        "show_db_management_dialog": ["F10"]
     },
     # Keys active only while a VIDEO is being displayed - see the priority
     # rule above. Seeking has three steps, each with its own key binding

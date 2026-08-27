@@ -20,6 +20,7 @@ Schema:
       makes assigning the same tag twice a silent no-op instead of an
       error.
 """
+import csv
 import sqlite3
 import time
 from pathlib import Path
@@ -305,6 +306,91 @@ class TagsDatabase:
         disk, so the stale database entries don't keep coming up."""
         self.conn.execute("DELETE FROM tag_assignments WHERE file_path = ?", (str(file_path),))
         self.conn.commit()
+
+    # -- database management ----------------------------------------------
+    def db_stats(self):
+        """Return a dict with the database overview for the management
+        dialog: number of assignments ("entries"), number of distinct
+        files, and number of distinct tags."""
+        entries = self.conn.execute("SELECT COUNT(*) AS n FROM tag_assignments").fetchone()["n"]
+        files = self.conn.execute(
+            "SELECT COUNT(DISTINCT file_path) AS n FROM tag_assignments"
+        ).fetchone()["n"]
+        tags = self.conn.execute("SELECT COUNT(*) AS n FROM tags").fetchone()["n"]
+        return {"entries": entries, "files": files, "tags": tags}
+
+    def compact(self):
+        """Remove every assignment whose file no longer exists on disk,
+        then drop tags left without any assignments.  Returns
+        (removed_files, removed_entries, removed_tags)."""
+        cur = self.conn.execute("SELECT DISTINCT file_path FROM tag_assignments")
+        missing = [r["file_path"] for r in cur.fetchall() if not Path(r["file_path"]).exists()]
+        removed_entries = 0
+        for file_path in missing:
+            removed_entries += self.conn.execute(
+                "DELETE FROM tag_assignments WHERE file_path = ?", (file_path,)
+            ).rowcount
+        removed_tags = self.conn.execute(
+            "DELETE FROM tags WHERE id NOT IN (SELECT DISTINCT tag_id FROM tag_assignments)"
+        ).rowcount
+        self.conn.commit()
+        return len(missing), removed_entries, removed_tags
+
+    def export_csv(self, csv_path):
+        """Write every assignment to `csv_path` as (tag, timestamp, path)
+        rows - no internal ids.  A whole-file tag has an empty timestamp,
+        a video-timestamp tag has the integer second.  Returns the number
+        of exported rows."""
+        rows = self.conn.execute(
+            """
+            SELECT t.name AS name, a.timestamp_sec AS ts, a.file_path AS path
+            FROM tag_assignments a JOIN tags t ON t.id = a.tag_id
+            ORDER BY t.name COLLATE NOCASE ASC, a.file_path ASC, a.timestamp_sec ASC
+            """
+        ).fetchall()
+        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["tag", "timestamp", "path"])
+            for r in rows:
+                ts = "" if r["ts"] == WHOLE_FILE_MARKER else str(r["ts"])
+                writer.writerow([r["name"], ts, r["path"]])
+        return len(rows)
+
+    def import_csv(self, csv_path):
+        """Append assignments from `csv_path`, expecting the same
+        (tag, timestamp, path) columns as :meth:`export_csv` (a header row
+        is skipped).  Rows that duplicate an existing assignment - same
+        tag, same file, and the same timestamp when one is given - are
+        silently skipped instead of creating a duplicate.  Returns
+        (added, skipped)."""
+        with open(csv_path, newline="", encoding="utf-8-sig") as f:
+            rows = list(csv.reader(f))
+        if rows and rows[0] and rows[0][0].strip().casefold() == "tag":
+            rows = rows[1:]  # our own export header
+        added = 0
+        skipped = 0
+        for row in rows:
+            if len(row) < 3:
+                skipped += 1
+                continue
+            tag = row[0].strip()
+            file_path = row[2].strip()
+            timestamp_text = row[1].strip()
+            if not tag or not file_path:
+                skipped += 1
+                continue
+            timestamp_sec = None
+            if timestamp_text:
+                try:
+                    timestamp_sec = int(timestamp_text)
+                except ValueError:
+                    skipped += 1
+                    continue
+            if self.assign_tag(tag, file_path, timestamp_sec):
+                added += 1
+            else:
+                skipped += 1
+        return added, skipped
 
     def close(self):
         self.conn.close()

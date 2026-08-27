@@ -14,13 +14,14 @@ operation should apply to the "Zaznaczone" (selected) files or just the
 files in the folder, and sees a small thumbnail summary of both the
 selected and the remaining files.
 """
+import os
 import shutil
 from pathlib import Path
 
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget,
     QLineEdit, QPushButton, QLabel, QMessageBox, QGroupBox, QRadioButton,
-    QButtonGroup
+    QButtonGroup, QInputDialog
 )
 from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QKeyEvent, QMouseEvent
@@ -31,6 +32,17 @@ from .folder_list import FolderListController
 from .i18n import tr
 from . import styles
 from .selection_preview import SelectionPreviewWidget
+
+
+def _same_file(path_a, path_b):
+    """True when both paths refer to the same existing file - used to
+    detect copying/moving a file onto itself, which is a no-op rather
+    than a name conflict (the destination defaults to the current folder,
+    so this is the common "keep it here" case)."""
+    try:
+        return os.path.samefile(path_a, path_b)
+    except OSError:
+        return False
 
 
 class FileOperationDialog(QDialog):
@@ -306,6 +318,62 @@ class FileOperationDialog(QDialog):
     # ------------------------------------------------------------------
     # Copy / Move
     # ------------------------------------------------------------------
+    # -- existing-target conflict handling ------------------------------
+    def _ask_conflict(self, filename):
+        """Show the "file already exists in the destination" question.
+        Returns "cancel", "overwrite" or "rename"."""
+        box = QMessageBox(self)
+        box.setWindowTitle(tr("file_dialog.conflict_title"))
+        box.setText(tr("file_dialog.conflict_ask", file=filename))
+        cancel_btn = box.addButton(tr("file_dialog.conflict_cancel"), QMessageBox.ButtonRole.RejectRole)
+        overwrite_btn = box.addButton(tr("file_dialog.conflict_overwrite"), QMessageBox.ButtonRole.AcceptRole)
+        rename_btn = box.addButton(tr("file_dialog.conflict_rename"), QMessageBox.ButtonRole.ActionRole)
+        box.exec()
+        clicked = box.clickedButton()
+        if clicked is overwrite_btn:
+            return "overwrite"
+        if clicked is rename_btn:
+            return "rename"
+        return "cancel"
+
+    def _ask_new_name(self, filename):
+        """Ask for a replacement file name.  Returns the new name (without
+        path separators), or None when the user cancels."""
+        while True:
+            name, ok = QInputDialog.getText(
+                self, tr("file_dialog.conflict_rename_title"),
+                tr("file_dialog.conflict_rename_ask"),
+                text=filename,
+            )
+            if not ok:
+                return None
+            name = name.strip()
+            if name and "/" not in name and "\\" not in name:
+                return name
+            QMessageBox.warning(
+                self, tr("file_dialog.conflict_rename_title"),
+                tr("file_dialog.conflict_name_invalid"),
+            )
+
+    def _resolve_conflict(self, filename, dest_path):
+        """Ask the user what to do about an existing target file.  Returns
+        ("overwrite", target_path) or ("rename", target_path), or None
+        when the whole operation should be cancelled.  A renamed target
+        that also exists re-asks the question for the new name."""
+        while True:
+            choice = self._ask_conflict(filename)
+            if choice == "cancel":
+                return None
+            if choice == "overwrite":
+                return "overwrite", dest_path / filename
+            new_name = self._ask_new_name(filename)
+            if new_name is None:
+                return None  # name dialog cancelled -> abort the operation
+            target = dest_path / new_name
+            if not target.exists():
+                return "rename", target
+            filename = new_name  # the new name exists too - ask again
+
     def _perform(self, action):
         context = self._operation_context()
         if context == "selected":
@@ -355,10 +423,26 @@ class FileOperationDialog(QDialog):
         succeeded = []
         succeeded_targets = {}  # src_str -> target_str, only for action == "move"
         errors = []
+        aborted = False
         for src_str in paths_to_process:
             src = Path(src_str)
             try:
                 target = dest_path / src.name
+                if _same_file(src, target):
+                    # Copying/moving a file onto itself is a no-op, not a
+                    # conflict - accept it silently.
+                    succeeded.append(src_str)
+                    if action == "move":
+                        succeeded_targets[src_str] = str(target)
+                    continue
+                if target.exists():
+                    resolved = self._resolve_conflict(src.name, dest_path)
+                    if resolved is None:
+                        aborted = True
+                        break  # user cancelled the whole operation
+                    _mode, target = resolved
+                    if target.exists():  # "overwrite" - replace the file
+                        target.unlink()
                 if action == "copy":
                     shutil.copy2(str(src), str(target))
                 else:
@@ -372,8 +456,8 @@ class FileOperationDialog(QDialog):
             details = "\n".join(f"{Path(p).name}: {err}" for p, err in errors)
             QMessageBox.warning(self, tr("file_dialog.some_failed_title"), details)
 
-        if not succeeded:
-            return  # nothing worked, keep the dialog open
+        if aborted or not succeeded:
+            return  # cancelled, or nothing worked - keep the dialog open
 
         self.settings.add_history(destination_folder)
         self.settings.set_last_used_location(destination_folder)

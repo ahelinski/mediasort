@@ -42,6 +42,12 @@ COLOR_TEXT = "#fefefe"
 COLOR_TEXT_RGB = (254, 254, 254)
 # Muted text (hints, secondary/info labels).
 COLOR_TEXT_MUTED = "#9db4c8"
+# Darker text for disabled/inactive fields - still readable on the dark
+# background, but clearly distinguishable from active widgets.
+COLOR_TEXT_DISABLED = "#4a5d72"
+# Dimmer border for disabled input fields (line edits, lists, checkbox
+# indicators), so inactive fields don't look like active ones.
+COLOR_BORDER_DISABLED = "#0d3a63"
 # Hover tint for links and flat buttons.
 COLOR_HOVER = "#8ec8ff"
 # Destructive action color (delete links).
@@ -71,6 +77,29 @@ DIALOG = " ".join([
     f"QGroupBox {{ color: {COLOR_TEXT}; font-weight: bold; "
     f"border: 1px solid {COLOR_BORDER}; border-radius: 4px; margin-top: 8px; }}",
     "QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }",
+    # Checkbox indicators must be clearly visible on the dark background:
+    # a bordered box that fills with the accent color when checked.
+    f"QCheckBox::indicator {{ width: 14px; height: 14px; "
+    f"border: 1px solid {COLOR_BORDER}; border-radius: 2px; "
+    f"background-color: {COLOR_BG}; }}",
+    f"QCheckBox::indicator:hover {{ border-color: {COLOR_BORDER_ACTIVE}; }}",
+    f"QCheckBox::indicator:checked {{ background-color: {COLOR_BORDER}; "
+    f"border-color: {COLOR_BORDER_ACTIVE}; }}",
+    f"QCheckBox::indicator:checked:hover {{ background-color: {COLOR_BORDER_ACTIVE}; }}",
+    # Disabled/inactive fields: clearly dimmed text (and borders for
+    # inputs and group boxes), so they don't look almost identical to
+    # active ones.
+    f"QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled, "
+    f"QGroupBox:disabled, QPushButton:disabled {{ color: {COLOR_TEXT_DISABLED}; }}",
+    f"QGroupBox:disabled {{ border-color: {COLOR_BORDER_DISABLED}; }}",
+    f"QLineEdit:disabled, QListWidget:disabled {{ color: {COLOR_TEXT_DISABLED}; "
+    f"border-color: {COLOR_BORDER_DISABLED}; }}",
+    f"QCheckBox::indicator:disabled {{ border-color: {COLOR_BORDER_DISABLED}; }}",
+    # A list inside a group box (e.g. the Browse dialog's folder list)
+    # inherits the frame from the group box - drop its own border so it
+    # doesn't render a double frame; focus restores a bright border.
+    "QGroupBox QListWidget { border: none; background: transparent; }",
+    f"QGroupBox QListWidget:focus {{ border: 1px solid {COLOR_BORDER_ACTIVE}; }}",
     f"QLineEdit {{ background-color: {COLOR_BG}; color: {COLOR_TEXT}; "
     f"border: 1px solid {COLOR_BORDER}; border-radius: 3px; padding: 2px 4px; "
     f"selection-background-color: {COLOR_BORDER}; selection-color: {COLOR_TEXT}; }}",
@@ -125,12 +154,13 @@ THUMB = f"background-color: {COLOR_BG}; border: 1px solid {COLOR_BORDER};"
 
 def _ts_link_style(bold=False):
     """Timestamp-tag seek chip overlaid on the video; ``bold`` marks the
-    interval containing the playback position."""
+    interval containing the playback position.  Plain dark background, no
+    border - the translucent chip alone stands out on video."""
     weight = "font-weight: bold; " if bold else ""
     return " ".join([
         f"QPushButton {{ color: {COLOR_TEXT}; background-color: {COLOR_BG_TRANSLUCENT}; "
         f"font-size: {FONT_SIZE_SMALL}px; {weight}padding: 2px 8px; "
-        f"border: 1px solid {COLOR_BORDER}; border-radius: 3px; }}",
+        f"border-radius: 3px; }}",
         f"QPushButton:hover {{ background-color: {COLOR_ACCENT_TRANSLUCENT}; }}",
     ])
 

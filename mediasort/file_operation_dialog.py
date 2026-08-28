@@ -138,16 +138,26 @@ class FileOperationDialog(QDialog):
         self._build_selection_panel(right)
 
     def _build_left_panel(self, layout):
+        # 1. File name first.
         info = QLabel(tr("file_dialog.current_file", filename=Path(self.current_file).name), self)
         info.setStyleSheet(styles.DIALOG)
         layout.addWidget(info)
 
+        # 2. Folder list (Relative / History / Favourites) - owned by the
+        # shared FolderListController.  Takes the remaining vertical space.
+        self.list_widget = QListWidget(self)
+        # Selection change / activation wiring lives in FolderListController.
+        self.list_widget.installEventFilter(self)
+        layout.addWidget(self.list_widget, 1)
+
+        # 3. Mode info label below the list.
         self.mode_label = QLabel(self)
         layout.addWidget(self.mode_label)
 
-        # Destination path: a permanently visible, editable field.  It
-        # mirrors the selected list item, but the user can type any path
-        # into it; typed edits never propagate back to the list.
+        # 4. Destination path below the mode label: a permanently visible,
+        # editable field.  It mirrors the selected list item, but the user
+        # can type any path into it; typed edits never propagate back to
+        # the list.
         self.location_edit = QLineEdit(self)
         self.location_edit.setPlaceholderText(tr("file_dialog.location_placeholder"))
         self.location_edit.setToolTip(tr("file_dialog.location_tooltip"))
@@ -161,11 +171,6 @@ class FileOperationDialog(QDialog):
         # right now - list selections write into it, manual edits too.
         self.location_edit.textChanged.connect(lambda _: self._refresh_folder_preview())
         layout.addWidget(self.location_edit)
-
-        self.list_widget = QListWidget(self)
-        # Selection change / activation wiring lives in FolderListController.
-        self.list_widget.installEventFilter(self)
-        layout.addWidget(self.list_widget)
 
         btn_row = QHBoxLayout()
         self.copy_btn = QPushButton(tr("file_dialog.copy_btn", **self._shortcuts), self)

@@ -205,7 +205,15 @@ class BrowseDialog(QDialog):
         self.browse_folder_cb.toggled.connect(self._on_folder_browse_toggled)
         col.addWidget(self.browse_folder_cb)
 
-        col.addWidget(QLabel(tr("browse_dialog.folder_label"), self))
+        # Folder list with the "Folder" title embedded in the frame border,
+        # matching the "Typ plików" group box in the right column.
+        self.folder_group = QGroupBox(tr("browse_dialog.folder_group"), self)
+        folder_layout = QVBoxLayout(self.folder_group)
+        self.folder_list = QListWidget(self.folder_group)
+        # Selection change / activation wiring lives in FolderListController.
+        self.folder_list.installEventFilter(self)
+        folder_layout.addWidget(self.folder_list)
+        col.addWidget(self.folder_group, 1)
 
         self.folder_mode_label = QLabel(self)
         col.addWidget(self.folder_mode_label)
@@ -227,6 +235,11 @@ class BrowseDialog(QDialog):
         self.location_edit.textChanged.connect(lambda _: self._update_match_count())
         col.addWidget(self.location_edit)
 
+        self.clear_folder_btn = QPushButton(tr("browse_dialog.clear_folder_btn"), self)
+        self.clear_folder_btn.clicked.connect(self._clear_folder)
+        col.addWidget(self.clear_folder_btn)
+
+        # "Include subfolders" sits at the very bottom of the panel.
         self.include_subfolders_cb = QCheckBox(tr("browse_dialog.include_subfolders"), self)
         depth = self.settings.get("browse_subfolder_depth", default=1)
         self.include_subfolders_cb.setToolTip(
@@ -234,15 +247,6 @@ class BrowseDialog(QDialog):
         )
         self.include_subfolders_cb.toggled.connect(lambda _checked: self._update_match_count())
         col.addWidget(self.include_subfolders_cb)
-
-        self.folder_list = QListWidget(self)
-        # Selection change / activation wiring lives in FolderListController.
-        self.folder_list.installEventFilter(self)
-        col.addWidget(self.folder_list)
-
-        self.clear_folder_btn = QPushButton(tr("browse_dialog.clear_folder_btn"), self)
-        self.clear_folder_btn.clicked.connect(self._clear_folder)
-        col.addWidget(self.clear_folder_btn)
 
     def _build_tag_column(self, columns):
         col = QVBoxLayout()
@@ -253,14 +257,17 @@ class BrowseDialog(QDialog):
         self.browse_tag_cb.toggled.connect(self._on_tag_browse_toggled)
         col.addWidget(self.browse_tag_cb)
 
-        col.addWidget(QLabel(tr("browse_dialog.tag_label"), self))
-
-        self.tag_list = QListWidget(self)
+        # Tag list with the "Tag" title embedded in the frame border,
+        # matching the folder and type panels.
+        self.tag_group = QGroupBox(tr("browse_dialog.tag_group"), self)
+        tag_layout = QVBoxLayout(self.tag_group)
+        self.tag_list = QListWidget(self.tag_group)
         # One or more tags can be selected (Ctrl/Shift+click, drag).
         self.tag_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.tag_list.itemSelectionChanged.connect(self._update_match_count)
         self.tag_list.installEventFilter(self)
-        col.addWidget(self.tag_list)
+        tag_layout.addWidget(self.tag_list)
+        col.addWidget(self.tag_group, 1)
 
         # How multiple selected tags combine: union (OR) or intersection (AND).
         combine_row = QHBoxLayout()
@@ -350,9 +357,9 @@ class BrowseDialog(QDialog):
 
     def _apply_folder_enabled(self):
         enabled = self.browse_folder_cb.isChecked()
-        for w in (self.folder_mode_label, self.location_edit,
-                  self.include_subfolders_cb, self.folder_list,
-                  self.clear_folder_btn):
+        for w in (self.folder_group, self.folder_mode_label,
+                  self.location_edit, self.include_subfolders_cb,
+                  self.folder_list, self.clear_folder_btn):
             w.setEnabled(enabled)
 
     def _on_tag_browse_toggled(self, checked):
@@ -369,7 +376,7 @@ class BrowseDialog(QDialog):
 
     def _apply_tag_enabled(self):
         enabled = self.browse_tag_cb.isChecked()
-        for w in (self.tag_list, self.combine_label,
+        for w in (self.tag_group, self.tag_list, self.combine_label,
                   self.combine_or_rb, self.combine_and_rb,
                   self.clear_tag_btn):
             w.setEnabled(enabled)

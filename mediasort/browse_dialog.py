@@ -10,14 +10,19 @@ Layout: three sections side by side.
      re-selecting overwrites, and confirmation always uses the field).
      When off, the rest of the panel is disabled.
   2. Tag picker - "Browse tag" checkbox switches the whole panel on/off.
-     When on, a tag value is REQUIRED and every file carrying that tag is
-     a match.  When off, the rest of the panel is disabled.
+     When on, at least one tag is REQUIRED; one or more tags can be
+     selected from the list (Ctrl/Shift+click).  The "Suma (OR) /
+     Część wspólna (AND)" toggle decides how multiple tags combine:
+     OR shows every file carrying ANY of them, AND only files carrying
+     ALL of them (a single selected tag behaves the same either way).
+     When off, the rest of the panel is disabled.
   3. Media type filter - Images and videos / Images only / Videos only.
 
 At least one of the two checkboxes must be checked.  With only the folder
 checkbox, all files in that folder (optionally including subfolders) are
-shown; with only the tag checkbox, every file carrying that tag; with
-both, only files that are BOTH in the folder AND carry the tag.
+shown; with only the tag checkbox, every file matching the tag selection
+(union or intersection, per the toggle); with both, only files that are
+BOTH in the folder AND match the tag selection.
 
 The dialog remembers its state (checkboxes, folder mode/path, tag, type
 filter) between opens within one application run.  When the app restarts,
@@ -29,7 +34,7 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
     QLineEdit, QPushButton, QLabel, QGroupBox, QRadioButton, QButtonGroup,
-    QMessageBox, QCheckBox
+    QMessageBox, QCheckBox, QAbstractItemView
 )
 from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QKeyEvent, QMouseEvent
@@ -54,7 +59,8 @@ def _default_session_state(current_folder):
         "folder_mode": "relative",
         "folder_path": "",
         "include_subfolders": False,
-        "tag": None,
+        "tags": [],            # selected tag names (one or more allowed)
+        "tag_combine": "or",   # how multiple tags combine: "or" | "and"
         "type_filter": "both",
     }
 
@@ -120,11 +126,12 @@ class BrowseDialog(QDialog):
             auto_select=self.browse_folder_cb.isChecked(),
         )
         self._reload_tag_list()
-        if self._session["tag"]:
+        for name in self._session.get("tags") or []:
             for row in range(self.tag_list.count()):
-                if self.tag_list.item(row).data(Qt.UserRole) == self._session["tag"]:
-                    self.tag_list.setCurrentRow(row)
+                if self.tag_list.item(row).data(Qt.UserRole) == name:
+                    self.tag_list.item(row).setSelected(True)
                     break
+        self._set_tag_combine(self._session.get("tag_combine", "or"))
         self.location_edit.setText(restored_folder)
         self._update_match_count()
 
@@ -236,9 +243,29 @@ class BrowseDialog(QDialog):
         col.addWidget(QLabel(tr("browse_dialog.tag_label"), self))
 
         self.tag_list = QListWidget(self)
-        self.tag_list.currentItemChanged.connect(lambda *_: self._update_match_count())
+        # One or more tags can be selected (Ctrl/Shift+click, drag).
+        self.tag_list.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.tag_list.itemSelectionChanged.connect(self._update_match_count)
         self.tag_list.installEventFilter(self)
         col.addWidget(self.tag_list)
+
+        # How multiple selected tags combine: union (OR) or intersection (AND).
+        combine_row = QHBoxLayout()
+        self.combine_label = QLabel(tr("browse_dialog.tag_combine_label"), self)
+        combine_row.addWidget(self.combine_label)
+        self.combine_or_rb = QRadioButton(tr("browse_dialog.tag_combine_or"), self)
+        self.combine_or_rb.setToolTip(tr("browse_dialog.tag_combine_or_tooltip"))
+        self.combine_or_rb.setChecked(True)
+        self.combine_and_rb = QRadioButton(tr("browse_dialog.tag_combine_and"), self)
+        self.combine_and_rb.setToolTip(tr("browse_dialog.tag_combine_and_tooltip"))
+        combine_group = QButtonGroup(self)
+        combine_group.addButton(self.combine_or_rb)
+        combine_group.addButton(self.combine_and_rb)
+        for rb in (self.combine_or_rb, self.combine_and_rb):
+            rb.toggled.connect(lambda checked: self._update_match_count() if checked else None)
+            combine_row.addWidget(rb)
+        combine_row.addStretch(1)
+        col.addLayout(combine_row)
 
         self.clear_tag_btn = QPushButton(tr("browse_dialog.clear_tag_btn"), self)
         self.clear_tag_btn.clicked.connect(self._clear_tag)
@@ -313,7 +340,9 @@ class BrowseDialog(QDialog):
 
     def _apply_tag_enabled(self):
         enabled = self.browse_tag_cb.isChecked()
-        for w in (self.tag_list, self.clear_tag_btn):
+        for w in (self.tag_list, self.combine_label,
+                  self.combine_or_rb, self.combine_and_rb,
+                  self.clear_tag_btn):
             w.setEnabled(enabled)
 
     # -- custom location editing ----------------------------------------
@@ -341,9 +370,23 @@ class BrowseDialog(QDialog):
     def _selected_folder(self):
         return self.location_edit.text().strip() or None
 
-    def _selected_tag(self):
-        item = self.tag_list.currentItem()
-        return item.data(Qt.UserRole) if item else None
+    def _selected_tags(self):
+        """Return the names of every currently selected tag (may be
+        empty; several tags can be selected at once)."""
+        return [
+            self.tag_list.item(i).data(Qt.UserRole)
+            for i in range(self.tag_list.count())
+            if self.tag_list.item(i).isSelected()
+        ]
+
+    def _tag_combine(self):
+        """How multiple selected tags are combined: "or" (union) or
+        "and" (intersection). With a single tag both give the same result."""
+        return "and" if self.combine_and_rb.isChecked() else "or"
+
+    def _set_tag_combine(self, which):
+        self.combine_or_rb.setChecked(which != "and")
+        self.combine_and_rb.setChecked(which == "and")
 
     def _media_type_filter(self):
         if self.radio_images.isChecked():
@@ -375,7 +418,7 @@ class BrowseDialog(QDialog):
             return tr("browse_dialog.missing_selection")
         if self.browse_folder_cb.isChecked() and not self._selected_folder():
             return tr("browse_dialog.missing_folder")
-        if self.browse_tag_cb.isChecked() and not self._selected_tag():
+        if self.browse_tag_cb.isChecked() and not self._selected_tags():
             return tr("browse_dialog.missing_tag")
         return None
 
@@ -392,10 +435,10 @@ class BrowseDialog(QDialog):
             return None
 
         folder = self._selected_folder() if use_folder else None
-        tag = self._selected_tag() if use_tag else None
+        tags = self._selected_tags() if use_tag else None
         if use_folder and not folder:
             return None
-        if use_tag and not tag:
+        if use_tag and not tags:
             return None
 
         image_exts, video_exts = self._ext_lists()
@@ -412,8 +455,15 @@ class BrowseDialog(QDialog):
             else:
                 folder_items = []
 
-        if tag:
-            tag_files = set(self.tags_db.files_for_tag(tag))
+        if tags:
+            # Combine the selected tags according to the OR/AND toggle:
+            # union ("or") - a file carrying ANY of them matches; or
+            # intersection ("and") - a file must carry ALL of them.
+            tag_sets = [set(self.tags_db.files_for_tag(name)) for name in tags]
+            if self._tag_combine() == "and":
+                tag_files = set.intersection(*tag_sets)
+            else:
+                tag_files = set.union(*tag_sets)
         else:
             tag_files = None
 
@@ -469,7 +519,8 @@ class BrowseDialog(QDialog):
             "folder_mode": self.folder_list_ctrl.mode,
             "folder_path": self.location_edit.text().strip(),
             "include_subfolders": self.include_subfolders_cb.isChecked(),
-            "tag": self._selected_tag(),
+            "tags": self._selected_tags(),
+            "tag_combine": self._tag_combine(),
             "type_filter": self._media_type_filter(),
         }
 

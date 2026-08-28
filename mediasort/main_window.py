@@ -33,6 +33,58 @@ def _format_ms(ms):
     minutes, seconds = divmod(total_seconds, 60)
     return f"{minutes:02d}:{seconds:02d}"
 
+
+# Default maximum number of timestamp-tag links shown overlaid on the
+# video at once (overridable via the "max_visible_timestamp_tags"
+# setting). The shown window follows the playback position - see
+# _visible_timestamp_tags.
+MAX_VISIBLE_TIMESTAMP_TAGS = 20
+
+
+def _visible_timestamp_tags(tags, current_second, limit=MAX_VISIBLE_TIMESTAMP_TAGS):
+    """Pick which timestamp tags to display around the playback position.
+
+    ``tags`` is the file's full list of (name, ts) timestamp tags sorted
+    by ts (ascending); ``current_second`` is the integer playback second.
+
+    Returns ``(visible, hidden_before, hidden_after)``:
+
+    * ``visible`` - the (name, ts) tags to show, at most ``limit``;
+    * ``hidden_before`` - True when some earlier tags were cut off;
+    * ``hidden_after`` - True when some later tags were cut off.
+
+    Selection rules (per spec):
+
+    * All tags at the exact current second ("current" tags) are always
+      kept together, in the middle of the window.
+    * The remaining slots are split roughly evenly between the tags just
+      before and just after the current group; the "after" side gets the
+      extra slot when the split is uneven.
+    * When one side has fewer tags than its share, the unused slots go to
+      the other side - so with no tag at the very start of the video the
+      first ``limit`` tags are shown, and with no tag at the very end the
+      last ``limit`` tags are shown.
+    """
+    before = [t for t in tags if t[1] < current_second]
+    group = [t for t in tags if t[1] == current_second]
+    after = [t for t in tags if t[1] > current_second]
+
+    remaining = limit - len(group)
+    if remaining <= 0:
+        return group[:limit], bool(before), bool(after)
+
+    take_before = min(remaining // 2, len(before))
+    take_after = min(remaining - remaining // 2, len(after))
+    unused = remaining - take_before - take_after
+    if unused > 0:
+        if len(before) > take_before:
+            take_before = min(len(before), take_before + unused)
+        elif len(after) > take_after:
+            take_after = min(len(after), take_after + unused)
+
+    visible = before[len(before) - take_before:] + group + after[:take_after]
+    return visible, take_before < len(before), take_after < len(after)
+
 def _pause_video_while_open(f):
 
     def wrapper(*args, **kwargs):
@@ -110,6 +162,13 @@ class MainWindow(QMainWindow):
         self.timestamp_tags_layout.setSpacing(3)
         self.timestamp_tags_layout.setAlignment(Qt.AlignRight | Qt.AlignTop)
         self._timestamp_tag_buttons = []
+        # Full sorted list of this video's (name, ts) timestamp tags,
+        # independent of the currently visible window (which follows the
+        # playback position - see _refresh_timestamp_tags_window).
+        self._all_timestamp_tags = []
+        # The (name, ts) tags currently shown as buttons, used to detect
+        # whether the visible window changed and needs a rebuild.
+        self._visible_keys = []
         self.timestamp_tags_widget.hide()
 
         # Set of currently selected file paths. Persists until the app is
@@ -384,12 +443,23 @@ class MainWindow(QMainWindow):
         player = self.video_viewer.player
         self.time_label.setText(f"{_format_ms(player.position())} / {_format_ms(player.duration())}")
         self.time_label.adjustSize()
-        self._update_active_timestamp_tag(player.position())
+        self._refresh_timestamp_tags_window()
         self._position_overlays()
 
     def _clear_timestamp_tags(self):
-        """Remove timestamp-tag links from the video overlay."""
+        """Remove the whole timestamp-tag overlay (chips and "+" markers)
+        and forget the current video's tag list. Used when switching away
+        from a video or when showing a full-screen message."""
         self._timestamp_tag_buttons = []
+        self._visible_keys = []
+        self._all_timestamp_tags = []
+        self._remove_timestamp_tag_items()
+
+    def _remove_timestamp_tag_items(self):
+        """Delete every widget in the timestamp-tag overlay layout without
+        touching the cached tag list (so the window can be rebuilt)."""
+        self._timestamp_tag_buttons = []
+        self._visible_keys = []
         while self.timestamp_tags_layout.count():
             item = self.timestamp_tags_layout.takeAt(0)
             widget = item.widget()
@@ -398,17 +468,66 @@ class MainWindow(QMainWindow):
         self.timestamp_tags_widget.hide()
 
     def _update_timestamp_tags(self):
-        """Show each timestamp tag of the current video as a seek link."""
-        self._clear_timestamp_tags()
+        """Reload the current video's timestamp tags and rebuild the
+        overlay around the current playback position."""
         path = self.current_path()
         if self.current_kind() != "video" or not path:
+            self._clear_timestamp_tags()
             return
 
         timestamp_tags = sorted(
             ((name, ts) for name, ts in self.tags_db.file_tags(path) if ts is not None),
             key=lambda tag: tag[1],
         )
-        for name, ts in timestamp_tags:
+        self._all_timestamp_tags = [(name, int(ts)) for name, ts in timestamp_tags]
+        self._refresh_timestamp_tags_window(force=True)
+        self._position_overlays()
+
+    def _refresh_timestamp_tags_window(self, force=False):
+        """Recompute which timestamp tags fit on screen around the current
+        playback position and rebuild the overlay when that window changes.
+
+        Called on every playback position change (via _update_time_label)
+        and after the tag set itself changes (_update_timestamp_tags).
+        Rebuilding the buttons is skipped while the visible window is
+        unchanged - only the active-interval highlight is updated then.
+        """
+        if not self._all_timestamp_tags:
+            self._remove_timestamp_tag_items()
+            return
+        limit = self.settings.get(
+            "max_visible_timestamp_tags", default=MAX_VISIBLE_TIMESTAMP_TAGS
+        )
+        try:
+            limit = max(1, int(limit))
+        except (TypeError, ValueError):
+            limit = MAX_VISIBLE_TIMESTAMP_TAGS
+        current_second = max(self.video_viewer.player.position(), 0) // 1000
+        visible, hidden_before, hidden_after = _visible_timestamp_tags(
+            self._all_timestamp_tags, current_second, limit
+        )
+
+        if not force and visible == self._visible_keys:
+            self._update_active_timestamp_tag(self.video_viewer.player.position())
+            return
+
+        self._rebuild_timestamp_tag_buttons(visible, hidden_before, hidden_after)
+        self._update_active_timestamp_tag(self.video_viewer.player.position())
+
+    def _rebuild_timestamp_tag_buttons(self, visible, hidden_before, hidden_after):
+        """(Re)create the timestamp-tag chips for ``visible`` and the "+"
+        overflow markers, in order: hidden-previous marker, chips,
+        hidden-next marker."""
+        self._remove_timestamp_tag_items()
+        self._visible_keys = list(visible)
+
+        plus_above = QLabel("+", self.timestamp_tags_widget)
+        plus_above.setStyleSheet(styles.TS_MORE)
+        plus_above.setAlignment(Qt.AlignCenter)
+        plus_above.setVisible(hidden_before)
+        self.timestamp_tags_layout.addWidget(plus_above, 0, Qt.AlignRight)
+
+        for name, ts in visible:
             button = QPushButton(
                 tr(
                     "main_window.timestamp_tag_button",
@@ -426,10 +545,14 @@ class MainWindow(QMainWindow):
             self.timestamp_tags_layout.addWidget(button, 0, Qt.AlignRight)
             self._timestamp_tag_buttons.append((int(ts), button))
 
-        if timestamp_tags:
-            self.timestamp_tags_widget.adjustSize()
-            self.timestamp_tags_widget.show()
-        self._position_overlays()
+        plus_below = QLabel("+", self.timestamp_tags_widget)
+        plus_below.setStyleSheet(styles.TS_MORE)
+        plus_below.setAlignment(Qt.AlignCenter)
+        plus_below.setVisible(hidden_after)
+        self.timestamp_tags_layout.addWidget(plus_below, 0, Qt.AlignRight)
+
+        self.timestamp_tags_widget.adjustSize()
+        self.timestamp_tags_widget.show()
 
     @staticmethod
     def _set_timestamp_tag_button_active(button, active):
@@ -439,8 +562,10 @@ class MainWindow(QMainWindow):
             button.setStyleSheet(styles.ACTIVE_TS_LINK)
         else:
             button.setStyleSheet(styles.TS_LINK)
+
     def _update_active_timestamp_tag(self, position_ms):
-        """Bold the timestamp interval containing the playback position."""
+        """Bold the timestamp interval containing the playback position
+        among the currently visible tags."""
         if not self._timestamp_tag_buttons:
             return
         current_second = max(int(position_ms), 0) / 1000

@@ -140,6 +140,14 @@ TS_LINK = _ts_link_style()
 # Timestamp-tag seek chip (active interval).
 ACTIVE_TS_LINK = _ts_link_style(bold=True)
 
+# Small "+" marker shown above/below the timestamp-tag stack when tags
+# exist that are hidden (don't fit in the visible window).
+TS_MORE = (
+    f"color: {COLOR_TEXT_MUTED}; background-color: {COLOR_BG_TRANSLUCENT}; "
+    f"font-size: {FONT_SIZE_SMALL}px; font-weight: bold; "
+    "padding: 0px 8px; border-radius: 3px;"
+)
+
 # "[x]" selected-file indicator shown in the top-right corner.
 SELECTION = (
     f"color: {COLOR_SELECTION}; background-color: {COLOR_BG_TRANSLUCENT}; "

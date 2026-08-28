@@ -82,6 +82,11 @@ DEFAULT_SETTINGS = {
     # subfolders, 2 = also their subfolders, etc.). Kept small by default
     # to avoid scanning huge trees.
     "browse_subfolder_depth": 1,
+    # Maximum number of timestamp-tag links shown overlaid on the video at
+    # once. The shown window follows the playback position (see
+    # main_window._visible_timestamp_tags); "+" markers indicate hidden
+    # tags before/after the window.
+    "max_visible_timestamp_tags": 20,
     # Persisted runtime state below - user-specific, so fresh installs
     # start with the neutral values (the live settings.json overrides
     # them anyway via the deep merge).

@@ -169,6 +169,12 @@ class MainWindow(QMainWindow):
         # The (name, ts) tags currently shown as buttons, used to detect
         # whether the visible window changed and needs a rebuild.
         self._visible_keys = []
+        # Optional "timestamp tag filter" set by the Browse dialog's
+        # "Filtruj znaczniki czasowe" option: a set of tag names whose
+        # timestamp tags are the only ones shown over the video and used
+        # by the next/previous-timestamp navigation (E/Q). None = no
+        # filter (all timestamp tags are shown).
+        self.timestamp_tag_filter = None
         self.timestamp_tags_widget.hide()
 
         # Set of currently selected file paths. Persists until the app is
@@ -254,18 +260,28 @@ class MainWindow(QMainWindow):
         self.selected_paths = set()
         self.filter_active = False
         self.tag_mode_active = False
+        # A fresh folder is a new browsing context - drop any timestamp
+        # tag filter coming from an earlier Browse dialog confirmation.
+        self.timestamp_tag_filter = None
         self.video_viewer.stop()
         if self.media_items:
             self._show_current()
         else:
             self._show_message(tr("main_window.no_media_in_folder"))
 
-    def browse_custom(self, media_items, folder_for_context=None):
+    def browse_custom(self, media_items, folder_for_context=None,
+                      timestamp_tag_filter=None):
         """Show a custom, precomputed list of (path, kind) files - used by
         the Browse dialog's folder/tag/type combination, which may span
         multiple folders (or none at all, if filtering by tag only).
         Reuses the normal media_items/current_index machinery, so next/
-        prev, selection, filter, etc. all keep working unchanged."""
+        prev, selection, filter, etc. all keep working unchanged.
+
+        ``timestamp_tag_filter`` optionally receives the names of the
+        tags chosen with the Browse dialog's "Filtruj znaczniki czasowe"
+        option - from then on, only those tags' timestamp markers are
+        shown over videos and used by the E/Q next/previous-timestamp
+        navigation (pass None/empty to clear any previous filter)."""
         if folder_for_context:
             self.folder = str(Path(folder_for_context).resolve())
         self.media_items = list(media_items)
@@ -273,6 +289,7 @@ class MainWindow(QMainWindow):
         self.selected_paths = set()
         self.filter_active = False
         self.tag_mode_active = False
+        self.timestamp_tag_filter = set(timestamp_tag_filter) if timestamp_tag_filter else None
         self.video_viewer.stop()
         if self.media_items:
             self._show_current()
@@ -479,6 +496,12 @@ class MainWindow(QMainWindow):
             ((name, ts) for name, ts in self.tags_db.file_tags(path) if ts is not None),
             key=lambda tag: tag[1],
         )
+        # With the Browse dialog's "Filtruj znaczniki czasowe" option
+        # active, only timestamp tags of the chosen tags are shown.
+        if self.timestamp_tag_filter:
+            timestamp_tags = [
+                t for t in timestamp_tags if t[0] in self.timestamp_tag_filter
+            ]
         self._all_timestamp_tags = [(name, int(ts)) for name, ts in timestamp_tags]
         self._refresh_timestamp_tags_window(force=True)
         self._position_overlays()
@@ -605,14 +628,21 @@ class MainWindow(QMainWindow):
     def _jump_to_timestamp_tag(self, direction):
         """Jump to the next/previous timestamp-tagged second in the
         CURRENT video, relative to the current playback frame. Considers
-        every timestamp tag on the file regardless of tag name, and works
-        the same way whether browsing a folder or browsing by tag."""
+        every timestamp tag on the file regardless of tag name (or only
+        the timestamp tags of the tags chosen via the Browse dialog's
+        "Filtruj znaczniki czasowe" option when that filter is active),
+        and works the same way whether browsing a folder or by tag."""
         if self.current_kind() != "video":
             return
         path = self.current_path()
         if not path:
             return
         timestamps = self.tags_db.file_timestamps(path)
+        if self.timestamp_tag_filter:
+            timestamps = sorted({
+                ts for name, ts in self.tags_db.file_tags(path)
+                if ts is not None and name in self.timestamp_tag_filter
+            })
         if not timestamps:
             return
         current_frame = self.video_viewer.player.position() // 1000
@@ -1078,7 +1108,11 @@ class MainWindow(QMainWindow):
         self._active_dialog = None
 
         if dialog.confirmed:
-            self.browse_custom(dialog.result_items, folder_for_context=dialog.result_folder)
+            self.browse_custom(
+                dialog.result_items,
+                folder_for_context=dialog.result_folder,
+                timestamp_tag_filter=dialog.result_filter_tags,
+            )
 
 
     # ------------------------------------------------------------------

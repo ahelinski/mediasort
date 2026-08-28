@@ -16,7 +16,11 @@ Layout: three sections side by side.
      OR shows every file carrying ANY of them, AND only files carrying
      ALL of them (a single selected tag behaves the same either way).
      When off, the rest of the panel is disabled.
-  3. Media type filter - Images and videos / Images only / Videos only.
+  3. Media type filter - Images and videos / Images only / Videos only,
+     plus a "Filtruj znaczniki czasowe" checkbox: when checked, at least
+     one tag must be selected and, from then on, only those tags'
+     timestamp markers are shown over videos and used by the
+     next/previous-timestamp navigation (E/Q) in the main window.
 
 At least one of the two checkboxes must be checked.  With only the folder
 checkbox, all files in that folder (optionally including subfolders) are
@@ -62,6 +66,7 @@ def _default_session_state(current_folder):
         "tags": [],            # selected tag names (one or more allowed)
         "tag_combine": "or",   # how multiple tags combine: "or" | "and"
         "type_filter": "both",
+        "filter_timestamp_tags": False,  # show only chosen tags' timestamp markers
     }
 
 
@@ -75,6 +80,9 @@ class BrowseDialog(QDialog):
         self.confirmed = False
         self.result_items = []     # list of (path, kind) once confirmed
         self.result_folder = None  # folder to adopt as MainWindow.folder, or None
+        # Names of the tags whose timestamp markers should be filtered on
+        # video (set when "Filtruj znaczniki czasowe" is checked), or None.
+        self.result_filter_tags = None
 
         # Restore the previous state from this app run, if any.
         self._session = _default_session_state(self.current_folder)
@@ -113,6 +121,11 @@ class BrowseDialog(QDialog):
         self.browse_tag_cb.setChecked(self._session["browse_tag"])
         self.include_subfolders_cb.setChecked(self._session["include_subfolders"])
         self._set_type_filter(self._session["type_filter"])
+        # The timestamp filter only makes sense with tag browsing on; if a
+        # restored session has it checked without tag browsing, enable it.
+        self.filter_ts_cb.setChecked(self._session.get("filter_timestamp_tags", False))
+        if self.filter_ts_cb.isChecked() and not self.browse_tag_cb.isChecked():
+            self.browse_tag_cb.setChecked(True)
         self._apply_folder_enabled()
         self._apply_tag_enabled()
 
@@ -289,6 +302,14 @@ class BrowseDialog(QDialog):
         type_layout.addWidget(self.radio_images)
         type_layout.addWidget(self.radio_videos)
         col.addWidget(type_box)
+
+        # Timestamp-tag filter: when checked, only the timestamp markers
+        # of the selected tags are shown over videos and used by the E/Q
+        # next/previous-timestamp navigation.
+        self.filter_ts_cb = QCheckBox(tr("browse_dialog.filter_timestamp_tags"), self)
+        self.filter_ts_cb.setToolTip(tr("browse_dialog.filter_timestamp_tags_tooltip"))
+        self.filter_ts_cb.toggled.connect(self._on_filter_ts_toggled)
+        col.addWidget(self.filter_ts_cb)
         col.addStretch(1)
 
     def showEvent(self, event):
@@ -336,6 +357,14 @@ class BrowseDialog(QDialog):
 
     def _on_tag_browse_toggled(self, checked):
         self._apply_tag_enabled()
+        self._update_match_count()
+
+    def _on_filter_ts_toggled(self, checked):
+        # The timestamp filter needs tags to filter by - turning it on
+        # enables tag browsing (the "at least one tag" requirement is
+        # enforced at confirmation time).
+        if checked and not self.browse_tag_cb.isChecked():
+            self.browse_tag_cb.setChecked(True)
         self._update_match_count()
 
     def _apply_tag_enabled(self):
@@ -418,6 +447,8 @@ class BrowseDialog(QDialog):
             return tr("browse_dialog.missing_selection")
         if self.browse_folder_cb.isChecked() and not self._selected_folder():
             return tr("browse_dialog.missing_folder")
+        if self.filter_ts_cb.isChecked() and not self._selected_tags():
+            return tr("browse_dialog.missing_tag_ts_filter")
         if self.browse_tag_cb.isChecked() and not self._selected_tags():
             return tr("browse_dialog.missing_tag")
         return None
@@ -501,6 +532,9 @@ class BrowseDialog(QDialog):
             return  # defensive - _missing_selection_message covered it
         self.result_items = items
         self.result_folder = self._selected_folder() if self.browse_folder_cb.isChecked() else None
+        self.result_filter_tags = (
+            self._selected_tags() if self.filter_ts_cb.isChecked() else None
+        )
         self.confirmed = True
         self.accept()
 
@@ -522,6 +556,7 @@ class BrowseDialog(QDialog):
             "tags": self._selected_tags(),
             "tag_combine": self._tag_combine(),
             "type_filter": self._media_type_filter(),
+            "filter_timestamp_tags": self.filter_ts_cb.isChecked(),
         }
 
     # ------------------------------------------------------------------

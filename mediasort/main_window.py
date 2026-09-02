@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QMainWindow, QStackedWidget, QApplication, QLabel, QPushButton,
-    QVBoxLayout, QWidget,
+    QVBoxLayout, QWidget, QMessageBox,
 )
 from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
@@ -18,6 +18,7 @@ from .image_viewer import ImageViewer
 from .video_viewer import VideoViewer
 from .file_operation_dialog import FileOperationDialog
 from .browse_dialog import BrowseDialog
+from .cut_dialog import CutDialog, format_time
 from .tags_db import TagsDatabase
 from .tag_assign_dialog import TagAssignDialog
 from .tag_management_dialog import TagManagementDialog
@@ -151,6 +152,8 @@ class MainWindow(QMainWindow):
         self.time_label.hide()
         self.video_viewer.player.positionChanged.connect(self._update_time_label)
         self.video_viewer.player.durationChanged.connect(self._update_time_label)
+        # A/B cut marks set with [ / ] - reflect them in the time label.
+        self.video_viewer.cut_marks_changed.connect(self._update_time_label)
 
         # Timestamp-tag links are placed under the video's duration.  They
         # live in their own transparent container so their number can vary
@@ -458,7 +461,16 @@ class MainWindow(QMainWindow):
         if self.current_kind() != "video":
             return
         player = self.video_viewer.player
-        self.time_label.setText(f"{_format_ms(player.position())} / {_format_ms(player.duration())}")
+        text = f"{_format_ms(player.position())} / {_format_ms(player.duration())}"
+        cut_a, cut_b = self.video_viewer.get_cut_marks()
+        if cut_a is not None or cut_b is not None:
+            parts = []
+            if cut_a is not None:
+                parts.append(f"A {format_time(cut_a)}")
+            if cut_b is not None:
+                parts.append(f"B {format_time(cut_b)}")
+            text += "  [" + " · ".join(parts) + "]"
+        self.time_label.setText(text)
         self.time_label.adjustSize()
         self._refresh_timestamp_tags_window()
         self._position_overlays()
@@ -1017,6 +1029,16 @@ class MainWindow(QMainWindow):
             if matches_any(event, video_keys.get("prev_timestamp_tag", ["Q"])):
                 self._jump_to_timestamp_tag(-1)
                 return True
+            # Cutting: set the A/B marks and open the cut dialog.
+            if matches_any(event, video_keys.get("set_cut_start", ["["])):
+                self._set_cut_mark("start")
+                return True
+            if matches_any(event, video_keys.get("set_cut_end", ["]"])):
+                self._set_cut_mark("end")
+                return True
+            if matches_any(event, video_keys.get("show_cut_dialog", ["X"])):
+                self._open_cut_dialog()
+                return True
 
         # General next/prev - always moves to the next/previous file in
         # the folder, regardless of whether it's an image or a video.
@@ -1061,6 +1083,104 @@ class MainWindow(QMainWindow):
 
 
         return False
+
+    # ------------------------------------------------------------------
+    # Video cutting
+    # ------------------------------------------------------------------
+    def _set_cut_mark(self, which):
+        """Set the A ("start") or B ("end") cut mark at the current
+        playback position (keys [ / ] while watching a video)."""
+        if self.current_kind() != "video":
+            return
+        position = self.video_viewer.player.position()
+        if position < 0:
+            return
+        if which == "start":
+            self.video_viewer.set_cut_start(position)
+        else:
+            self.video_viewer.set_cut_end(position)
+        self._update_time_label()
+
+    @_pause_video_while_open
+    def _open_cut_dialog(self):
+        current = self.current_path()
+        if not current or self.current_kind() != "video":
+            return
+        cut_a, cut_b = self.video_viewer.get_cut_marks()
+        duration = self.video_viewer.player.duration()
+        self._dialog_open = True
+        dialog = CutDialog(
+            source_path=current,
+            folder=Path(current).parent,
+            settings=self.settings,
+            duration_ms=duration,
+            a_ms=cut_a,
+            b_ms=cut_b,
+            parent=self,
+        )
+        self._active_dialog = dialog
+        dialog.exec()
+        self._dialog_open = False
+        self._active_dialog = None
+
+        if dialog.result_path:
+            self._handle_cut_result(dialog, source_path=current)
+
+    def _handle_cut_result(self, dialog, source_path):
+        """Post-cut bookkeeping shared by the dialog flow and tests:
+        copy the source's timestamp tags that fall inside the fragment,
+        jump to the new file when it landed in the browsed folder and
+        confirm the result."""
+        out_path = dialog.result_path
+        if not out_path:
+            return
+
+        # Copy timestamp tags from the source video that lie within the
+        # produced fragment, shifted by its (possibly key-frame-snapped)
+        # start - e.g. a tag at 0:12 of a fragment cut from 0:10.7 becomes
+        # a tag at ~0:01 of the new file. Whole-file tags stay behind.
+        if (dialog.result_start_ms is not None
+                and dialog.result_end_ms is not None
+                and Path(out_path).suffix.lower() in self.settings.get(
+                    "video_extensions", default=[])):
+            try:
+                self.tags_db.copy_timestamp_tags_to_fragment(
+                    source_path, out_path,
+                    dialog.result_start_ms, dialog.result_end_ms,
+                )
+            except Exception:  # noqa: BLE001 - never block the cut on tag copies
+                pass
+
+        same_folder = Path(out_path).parent.resolve() == Path(self.folder).resolve()
+        if same_folder:
+            # The new file appeared in the currently browsed folder - rescan
+            # and jump straight to it so it is immediately visible/playable.
+            self._rescan_media()
+            self.current_index = self._find_index(out_path)
+            if self.media_items:
+                self._show_current()
+            else:
+                self._show_message(tr("main_window.no_media_in_folder"))
+            # The freshly loaded cut file auto-plays - pause it so no audio
+            # runs behind the confirmation box (the _pause_video_while_open
+            # wrapper resumes playback once the box closes).
+            if self.current_kind() == "video" and not self.video_viewer.is_paused():
+                self.video_viewer.pause()
+        # Modal confirmation. The app-wide event filter must not interpret
+        # clicks/keys aimed at the message box as global shortcuts (e.g.
+        # MouseLeft = pause/resume while a video is showing), otherwise the
+        # OK button would never receive the click. Keeping _dialog_open set
+        # suppresses all global bindings for the box's lifetime.
+        self._dialog_open = True
+        try:
+            QMessageBox.information(
+                self,
+                tr("cut.success_title"),
+                tr("cut.saved_to", path=out_path),
+            )
+        finally:
+            self._dialog_open = False
+
 
     # ------------------------------------------------------------------
     # File operation dialog

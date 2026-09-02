@@ -16,11 +16,23 @@
 #      HKCU\Software\Classes). Istniejacych domyslnych skojarzen NIE
 #      nadpisuje - Windows oferuje MediaSort obok nich.
 #
-# Uruchamianie:   dwuklik na install_windows.cmd
-#     albo:       powershell -NoProfile -ExecutionPolicy Bypass -File install_windows.ps1
+# Opcjonalnie (do wycinania wideo):  -WithFFmpeg
+#   Pobiera statyczne ffmpeg.exe/ffprobe.exe (gyan.dev) do katalogu tools\
+#   i wpisuje ich sciezki do mediasort/settings.json. Bez tego kroku
+#   funkcja "Wytnij fragment" wymaga ffmpeg zainstalowanego w systemie
+#   albo recznie wpisanej sciezki w ustawieniach.
+#
+# Uruchamianie:
+#     powershell -NoProfile -ExecutionPolicy Bypass -File install_windows.ps1
+#     powershell -NoProfile -ExecutionPolicy Bypass -File install_windows.ps1 -WithFFmpeg
+#   albo dwuklik na install_windows.cmd (bez -WithFFmpeg).
 #
 # Odinstalowanie: uninstall_windows.cmd
 # ============================================================================
+
+param(
+    [switch]$WithFFmpeg
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -221,6 +233,62 @@ function Add-MediaSortAssociations {
     Write-Ok ('Zarejestrowano dla {0} rozszerzen.' -f $Extensions.Count)
 }
 
+# --- ffmpeg (opcjonalnie, -WithFFmpeg) --------------------------------------
+$ToolsDir = Join-Path $RepoRoot 'tools'
+$SettingsJson = Join-Path $RepoRoot 'mediasort\settings.json'
+
+function Set-SettingsToolPaths {
+    # Wpisuje sciezki tools\ffmpeg.exe / ffprobe.exe do mediasort/settings.json
+    # (aplikacja laczy ten plik z domyslnymi ustawieniami przy starcie).
+    param([string]$FfmpegPath, [string]$FfprobePath)
+    $data = @{ }
+    if (Test-Path -LiteralPath $SettingsJson) {
+        try {
+            $data = Get-Content -LiteralPath $SettingsJson -Raw | ConvertFrom-Json -ErrorAction Stop
+        } catch {
+            $data = @{ }
+        }
+    }
+    $data.ffmpeg_path = $FfmpegPath
+    $data.ffprobe_path = $FfprobePath
+    $json = $data | ConvertTo-Json -Depth 8
+    [System.IO.File]::WriteAllText($SettingsJson, $json, (New-Object System.Text.UTF8Encoding($false)))
+    Write-Ok ('Wpisano sciezki ffmpeg do: {0}' -f $SettingsJson)
+}
+
+function Install-FFmpegTools {
+    param([string]$ToolsDir)
+    $ffmpegExe = Join-Path $ToolsDir 'ffmpeg.exe'
+    $ffprobeExe = Join-Path $ToolsDir 'ffprobe.exe'
+    if ((Test-Path -LiteralPath $ffmpegExe) -and (Test-Path -LiteralPath $ffprobeExe)) {
+        Write-Ok 'ffmpeg/ffprobe juz sa w tools/ - pominieto pobieranie.'
+    } else {
+        New-Item -ItemType Directory -Force -Path $ToolsDir | Out-Null
+        $zip = Join-Path $env:TEMP 'mediasort_ffmpeg.zip'
+        $extract = Join-Path $ToolsDir '_ffmpeg_extract'
+        $url = 'https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip'
+        Write-Step 'Pobieranie ffmpeg (statyczny build, ~90 MB) ...'
+        Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+        if (Test-Path -LiteralPath $extract) { Remove-Item -LiteralPath $extract -Recurse -Force }
+        Write-Step 'Rozpakowywanie ...'
+        Expand-Archive -LiteralPath $zip -DestinationPath $extract -Force
+        $foundFfmpeg = Get-ChildItem -LiteralPath $extract -Recurse -Filter 'ffmpeg.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $foundFfmpeg) {
+            throw 'Nie znaleziono ffmpeg.exe w pobranym archiwum.'
+        }
+        Copy-Item -LiteralPath $foundFfmpeg.FullName -Destination $ffmpegExe -Force
+        $foundFfprobe = Join-Path $foundFfmpeg.DirectoryName 'ffprobe.exe'
+        if (-not (Test-Path -LiteralPath $foundFfprobe)) {
+            throw 'Nie znaleziono ffprobe.exe obok ffmpeg.exe.'
+        }
+        Copy-Item -LiteralPath $foundFfprobe -Destination $ffprobeExe -Force
+        Remove-Item -LiteralPath $extract -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+        Write-Ok 'ffmpeg/ffprobe zainstalowane w tools/.'
+    }
+    Set-SettingsToolPaths -FfmpegPath $ffmpegExe -FfprobePath $ffprobeExe
+}
+
 # --- wlasciwa instalacja ----------------------------------------------------
 Write-Host ''
 Write-Host 'MediaSort - instalator dla Windows' -ForegroundColor Cyan
@@ -241,6 +309,10 @@ try {
     Ensure-PyInstaller -VenvPy $VenvPy
     Build-Launcher -VenvPy $VenvPy -Launcher $Launcher -ExePath $ExePath -VenvDir $VenvDir
 
+    if ($WithFFmpeg) {
+        Install-FFmpegTools -ToolsDir $ToolsDir
+    }
+
     $Extensions = Get-MediaExtensions
     Add-MediaSortAssociations -ExePath $ExePath -Extensions $Extensions
 
@@ -249,6 +321,15 @@ try {
     Write-Host ('  - MediaSort.exe : {0}' -f $ExePath)
     Write-Host ('  - venv          : {0}' -f $VenvDir)
     Write-Host ('  - typy plikow   : {0}' -f ($Extensions -join ' '))
+    if ($WithFFmpeg) {
+        Write-Host ('  - ffmpeg        : {0}' -f (Join-Path $ToolsDir 'ffmpeg.exe'))
+    } else {
+        Write-Host ''
+        Write-Host ('Wycinanie wideo (klawisz X): bez -WithFFmpeg funkcja wymaga ffmpeg.')
+        Write-Host ('  - uruchom ponownie:  powershell -NoProfile -ExecutionPolicy Bypass')
+        Write-Host ('       -File install_windows.ps1 -WithFFmpeg')
+        Write-Host '  - albo zainstaluj ffmpeg systemowo / wpisz sciezki w mediasort/settings.json.'
+    }
     Write-Host ''
     Write-Host 'Dwuklik na obrazek/wideo albo prawy przycisk -> Otworz za pomoca -> MediaSort.'
     Write-Host ''

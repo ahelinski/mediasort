@@ -59,6 +59,12 @@ COLOR_SELECTION = "#33ff66"
 COLOR_PROGRESS_TRACK = (10, 44, 80)    # unfilled track, slightly lighter than bg
 COLOR_PROGRESS_FILL = (220, 30, 30)    # played portion, red
 
+# Cut-range markers drawn on the video progress bar: start (A) is green,
+# end (B) is orange, the selected range gets a translucent highlight.
+COLOR_CUT_RANGE_RGB = (24, 104, 173)
+COLOR_CUT_START_RGB = (51, 255, 102)
+COLOR_CUT_END_RGB = (255, 170, 40)
+
 # ---------------------------------------------------------------------------
 # Palette: font sizes (px)
 # ---------------------------------------------------------------------------
@@ -128,6 +134,36 @@ LINK = _link_style(COLOR_TEXT, COLOR_HOVER)
 # Destructive link-style button, e.g. "Usuń".
 DEL_LINK = _link_style(COLOR_DANGER, COLOR_HOVER)
 
+# ---------------------------------------------------------------------------
+# Real (non-link) push buttons for primary/secondary dialog actions.
+# A widget-level stylesheet overrides the flat link look that styles.DIALOG
+# gives to every QPushButton, so these read as actual buttons.
+# ---------------------------------------------------------------------------
+
+# Primary action (e.g. "Wytnij"): filled accent button.
+PRIMARY_BUTTON = " ".join([
+    f"QPushButton {{ background-color: {COLOR_BORDER}; color: {COLOR_TEXT}; "
+    "border: 1px solid #2f8fd8; border-radius: 4px; padding: 6px 20px; "
+    "font-weight: bold; min-height: 18px; }",
+    f"QPushButton:hover {{ background-color: {COLOR_BORDER_ACTIVE}; }}",
+    "QPushButton:pressed { background-color: #0f4a7d; }",
+    f"QPushButton:focus {{ border: 1px solid {COLOR_HOVER}; }}",
+    f"QPushButton:disabled {{ background-color: {COLOR_BG}; color: "
+    f"{COLOR_TEXT_DISABLED}; border-color: {COLOR_BORDER_DISABLED}; }}",
+])
+
+# Secondary action (e.g. "Anuluj"): outline button.
+SECONDARY_BUTTON = " ".join([
+    f"QPushButton {{ background-color: {COLOR_BG}; color: {COLOR_TEXT}; "
+    f"border: 1px solid {COLOR_BORDER}; border-radius: 4px; "
+    "padding: 6px 20px; min-height: 18px; }",
+    f"QPushButton:hover {{ border-color: {COLOR_BORDER_ACTIVE}; "
+    "background-color: rgba(24, 104, 173, 70); }",
+    f"QPushButton:focus {{ border: 1px solid {COLOR_HOVER}; }}",
+    f"QPushButton:disabled {{ color: {COLOR_TEXT_DISABLED}; "
+    f"border-color: {COLOR_BORDER_DISABLED}; background-color: {COLOR_BG}; }}",
+])
+
 # Muted italic text used for small descriptive labels.
 INFO = f"color: {COLOR_TEXT_MUTED}; font-style: italic;"
 
@@ -196,6 +232,15 @@ MESSAGE_TEXT = (
 
 # Bold label, e.g. the browse dialog's match count.
 BOLD_LABEL = f"font-weight: bold; color: {COLOR_TEXT};"
+
+# Progress bar inside dialogs (e.g. the cut dialog while FFmpeg runs).
+PROGRESS = " ".join([
+    f"QProgressBar {{ background-color: {COLOR_BG}; border: 1px solid "
+    f"{COLOR_BORDER}; border-radius: 3px; text-align: center; "
+    f"color: {COLOR_TEXT}; }}",
+    f"QProgressBar::chunk {{ background-color: {COLOR_BORDER}; "
+    "border-radius: 2px; }",
+])
 
 # Fully transparent background (timestamp-tag overlay container).
 TRANSPARENT = "background: transparent;"

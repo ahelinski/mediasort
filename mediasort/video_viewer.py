@@ -61,6 +61,9 @@ class ProgressBarItem(QGraphicsObject):
         self._hovered = False
         self._window_start_ms = 0.0
         self._window_end_ms = 1.0
+        # Absolute cut-range marks (ms) shown on the bar, or None.
+        self._cut_a_ms = None
+        self._cut_b_ms = None
 
     # -- Qt API ------------------------------------------------------
     def boundingRect(self):
@@ -81,6 +84,12 @@ class ProgressBarItem(QGraphicsObject):
 
     def set_position(self, position_ms):
         self._position_ms = position_ms
+        self.update()
+
+    def set_cut_marks(self, a_ms, b_ms):
+        """Set the absolute cut-range marks shown on the bar (ms, or None)."""
+        self._cut_a_ms = a_ms
+        self._cut_b_ms = b_ms
         self.update()
 
     def set_hovered(self, hovered):
@@ -124,10 +133,36 @@ class ProgressBarItem(QGraphicsObject):
         window_len = self._window_end_ms - self._window_start_ms
         if window_len <= 0:
             return
+
+        def x_for_ms(ms):
+            """Bar x position (or None when outside the displayed window)."""
+            if ms is None:
+                return None
+            x = (ms - self._window_start_ms) / window_len * w
+            if x < 0 or x > w:
+                return None
+            return x
+
         progress = (self._position_ms - self._window_start_ms) / window_len
         progress = max(0.0, min(1.0, progress))
         fill_w = w * progress
         painter.fillRect(QRectF(0, 0, fill_w, h), QColor(*styles.COLOR_PROGRESS_FILL))
+
+        # Selected cut range A..B: highlight only when both marks are set
+        # and visible; each mark additionally gets its own edge line.
+        px_a = x_for_ms(self._cut_a_ms)
+        px_b = x_for_ms(self._cut_b_ms)
+        if px_a is not None and px_b is not None and px_b > px_a:
+            painter.setOpacity(0.55 * opacity)
+            r, g, b = styles.COLOR_CUT_RANGE_RGB
+            painter.fillRect(QRectF(px_a, 0, px_b - px_a, h), QColor(r, g, b, 90))
+            painter.setOpacity(opacity)
+        if self._cut_a_ms is not None and px_a is not None:
+            painter.setPen(QPen(QColor(*styles.COLOR_CUT_START_RGB), 2))
+            painter.drawLine(int(px_a), 0, int(px_a), int(h))
+        if self._cut_b_ms is not None and px_b is not None:
+            painter.setPen(QPen(QColor(*styles.COLOR_CUT_END_RGB), 2))
+            painter.drawLine(int(px_b), 0, int(px_b), int(h))
 
         painter.setPen(QPen(QColor(*styles.COLOR_TEXT_RGB), 2))
         painter.drawLine(int(fill_w), 0, int(fill_w), int(h))
@@ -155,6 +190,9 @@ class ProgressBarItem(QGraphicsObject):
 
 
 class VideoViewer(QGraphicsView):
+    # Emitted when the A/B cut marks change: (start_ms_or_None, end_ms_or_None)
+    cut_marks_changed = Signal(object, object)
+
     def __init__(self, settings, parent=None):
         super().__init__(parent)
         self.settings = settings
@@ -197,6 +235,10 @@ class VideoViewer(QGraphicsView):
         # setPosition() immediately after setSource()/play() can be lost,
         # since the player may reset position once loading completes.
         self._pending_seek_ms = None
+        # Absolute A/B cut-range marks (ms), None when unset. Cleared when
+        # a different file is loaded.
+        self._cut_start_ms = None
+        self._cut_end_ms = None
 
     # ------------------------------------------------------------------
     def load(self, path, seek_ms=None):
@@ -204,6 +246,7 @@ class VideoViewer(QGraphicsView):
         self._zoom_start_ms = None
         self._zoom_end_ms = None
         self._pending_seek_ms = seek_ms
+        self.clear_cut_marks()  # marks belong to the previous file
         self.player.setSource(QUrl.fromLocalFile(path))
         self.player.play()
         self._refresh_window()
@@ -220,6 +263,39 @@ class VideoViewer(QGraphicsView):
         new_pos = ts * 1000
         new_pos = max(0, min(new_pos, self.player.duration()))
         self.player.setPosition(int(new_pos))
+
+    # -- cut marks (A/B) -------------------------------------------------
+    def set_cut_start(self, position_ms):
+        """Set mark A to ``position_ms`` (keeps A <= B, adjusting B when
+        the new A lies beyond it)."""
+        pos = max(0, int(position_ms))
+        if self._cut_end_ms is not None and pos > self._cut_end_ms:
+            self._cut_end_ms = None  # a new range starts after the old end
+        self._cut_start_ms = pos
+        self._sync_cut_marks()
+
+    def set_cut_end(self, position_ms):
+        """Set mark B to ``position_ms`` (clears A when it lies beyond B)."""
+        pos = max(0, int(position_ms))
+        if self._cut_start_ms is not None and pos < self._cut_start_ms:
+            self._cut_start_ms = None  # the new range ends before the old start
+        self._cut_end_ms = pos
+        self._sync_cut_marks()
+
+    def clear_cut_marks(self):
+        if self._cut_start_ms is None and self._cut_end_ms is None:
+            return
+        self._cut_start_ms = None
+        self._cut_end_ms = None
+        self._sync_cut_marks()
+
+    def get_cut_marks(self):
+        """Return ``(start_ms_or_None, end_ms_or_None)``."""
+        return self._cut_start_ms, self._cut_end_ms
+
+    def _sync_cut_marks(self):
+        self.progress_bar.set_cut_marks(self._cut_start_ms, self._cut_end_ms)
+        self.cut_marks_changed.emit(self._cut_start_ms, self._cut_end_ms)
 
     def toggle_pause(self):
         if self.player.playbackState() == QMediaPlayer.PlayingState:

@@ -59,7 +59,12 @@ DEFAULT_SETTINGS = {
         "seek_big_seconds": 60,
         "toggle_pause": ["Space", "MouseLeft"],
         "next_timestamp_tag": ["E", "MouseWheelUp"],
-        "prev_timestamp_tag": ["Q", "MouseWheelDown"]
+        "prev_timestamp_tag": ["Q", "MouseWheelDown"],
+        # Video cutting: "[" sets the start mark (A) at the current
+        # position, "]" sets the end mark (B); "X" opens the cut dialog.
+        "set_cut_start": ["["],
+        "set_cut_end": ["]"],
+        "show_cut_dialog": ["X"]
     },
     # Keys active only while the file operation (copy/move/open) dialog is
     # open.
@@ -77,6 +82,19 @@ DEFAULT_SETTINGS = {
         "select_all": ["A"]
     },
     "history_max_size": 20,
+    # Paths of the ffmpeg/ffprobe CLIs used for cutting video fragments.
+    # None = look them up in PATH (and next to the app). PySide6 ships the
+    # FFmpeg *libraries* used by QtMultimedia, but no command-line tools.
+    "ffmpeg_path": None,
+    "ffprobe_path": None,
+    # Default video-cut mode chosen in the cut dialog: "fast" (lossless
+    # stream copy, exact playback thanks to the MP4 edit list) or "exact"
+    # (only the few seconds at the cut boundary are re-encoded, so the
+    # file itself starts at the exact requested frame).
+    "cut_default_mode": "fast",
+    # Whether the "clean file" (snap to keyframe) option is checked by
+    # default in the cut dialog.
+    "cut_clean_file": False,
     # How many levels of subfolders "Uwzglednij podfoldery" descends into
     # in the Open/Browse dialog (0 = folder only, 1 = folder + immediate
     # subfolders, 2 = also their subfolders, etc.). Kept small by default

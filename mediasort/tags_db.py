@@ -188,6 +188,40 @@ class TagsDatabase:
         )
         return cur.fetchone() is not None
 
+    # -- cutting support ---------------------------------------------------
+    def copy_timestamp_tags_to_fragment(self, source_path, target_path,
+                                        start_ms, end_ms):
+        """Copy the source's *timestamp* tags that fall inside a cut-out
+        fragment to the fragment's new file, with their times shifted by the
+        fragment's start.
+
+        A tag on second ``ts`` of the source is copied when its point in
+        time lies inside the half-open fragment range
+        ``[start_ms, end_ms)`` - i.e. ``start_ms <= ts*1000 < end_ms``. Its
+        new second in the fragment file is the nearest integer second of
+        ``ts*1000 - start_ms``. Whole-file tags (``timestamp_sec`` None) are
+        deliberately not copied: they describe the whole source file, not a
+        fragment of it.
+
+        Existing identical assignments on the target are skipped silently
+        (same rule as manual assignment). Returns the number of tags copied.
+        """
+        if start_ms is None or end_ms is None or end_ms <= start_ms:
+            return 0
+        copied = 0
+        for name, ts in self.file_tags(source_path):
+            if ts is None:
+                continue
+            ts_ms = int(ts) * 1000
+            if ts_ms < start_ms or ts_ms >= end_ms:
+                continue
+            shifted_ms = ts_ms - start_ms
+            new_ts = int((shifted_ms + 500) // 1000)  # nearest integer second
+            new_ts = max(0, new_ts)
+            if self.assign_tag(name, str(target_path), new_ts):
+                copied += 1
+        return copied
+
     def recent_assigned_tags(self, limit=50):
         cur = self.conn.execute(
             "SELECT name FROM tags WHERE last_assigned_at > 0 ORDER BY last_assigned_at DESC LIMIT ?",

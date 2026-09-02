@@ -155,6 +155,9 @@ if (Test-Path -LiteralPath (Join-Path $RepoRoot 'build\pyinstaller')) { $stale +
 if (Test-Path -LiteralPath (Join-Path $RepoRoot 'build\spec'))         { $stale += Join-Path $RepoRoot 'build\spec' }
 if (Test-Path -LiteralPath (Join-Path $RepoRoot 'dist\MediaSort.exe')) { $stale += Join-Path $RepoRoot 'dist\MediaSort.exe' }
 if (Test-Path -LiteralPath (Join-Path $RepoRoot 'MediaSort.spec'))     { $stale += Join-Path $RepoRoot 'MediaSort.spec' }
+# Katalog tools/ z ffmpeg pobranym przez instalator (-WithFFmpeg) - usuwamy,
+# skoro aplikacja (wraz z funkcja wycinania) zostaje odinstalowana.
+if (Test-Path -LiteralPath (Join-Path $RepoRoot 'tools\ffmpeg.exe'))   { $stale += Join-Path $RepoRoot 'tools' }
 foreach ($p in $stale) {
     Remove-Item -LiteralPath $p -Recurse -Force -ErrorAction SilentlyContinue
 }

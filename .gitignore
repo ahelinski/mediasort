@@ -1,6 +1,10 @@
 # Created by https://gitignore.org
 # Python.gitignore
 
+# Windows: pliki tworzone przez install_windows.ps1 / uninstall_windows.ps1
+MediaSort.exe
+MediaSort.spec
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

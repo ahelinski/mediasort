@@ -14,8 +14,8 @@ DEFAULT_SETTINGS_PATH = APP_DIR / "settings.json"
 
 DEFAULT_SETTINGS = {
     # UI language code - selects the translation file
-    # mediasort/translations/<language>.json. Currently only "pl" exists.
-    "language": "pl",
+    # mediasort/translations/<language>.json (e.g. "en", "pl").
+    "language": "en",
     # General navigation and action keys - active whenever an image or
     # video is being displayed (i.e. whenever the file operation dialog
     # ISN'T open). Each action accepts one OR MORE trigger strings
@@ -129,7 +129,7 @@ class Settings:
         self.data = self._load()
         # Make the UI language from settings.json take effect immediately
         # (looks up mediasort/translations/<language>.json).
-        load_translations(self.get("language", default="pl"))
+        load_translations(self.get("language", default="en"))
 
     # -- loading / saving -------------------------------------------------
     def _load(self):

@@ -1,13 +1,13 @@
 """Lightweight UI translation support for MediaSort.
 
 All user-visible strings live in JSON translation files under
-``mediasort/translations/``, one file per language code (e.g. ``pl.json``).
+``mediasort/translations/``, one file per language code (e.g. ``en.json``).
 The active language is chosen from the ``language`` setting in
 settings.json; the file matching that code is loaded and every UI string
 is looked up through :func:`tr` (or :func:`tr_plural` for count-dependent
 forms).
 
-Lookup order: active language table -> default language ("pl") table ->
+Lookup order: active language table -> default language ("en") table ->
 the raw key itself, so a missing key in a partial translation degrades
 gracefully instead of breaking the UI.
 """
@@ -17,7 +17,7 @@ from pathlib import Path
 APP_DIR = Path(__file__).resolve().parent
 TRANSLATIONS_DIR = APP_DIR / "translations"
 
-DEFAULT_LANGUAGE = "pl"
+DEFAULT_LANGUAGE = "en"
 
 _translations = {}   # table of the active language
 _default = {}        # table of the default language (fallback)
@@ -49,7 +49,7 @@ def load_translations(language_code):
 
 
 def current_language():
-    """Return the language code currently loaded (e.g. "pl")."""
+    """Return the language code currently loaded (e.g. "en")."""
     return _current_language
 
 

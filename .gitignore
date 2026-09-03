@@ -15,6 +15,7 @@ mediasort/tags.db
 mediasort/settings.json
 mediasort/log.txt
 *.jpg
+*.mp4
 
 # C extensions
 *.so

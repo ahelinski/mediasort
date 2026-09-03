@@ -122,7 +122,7 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget(self)
         self.setCentralWidget(self.stack)
 
-        self.image_viewer = ImageViewer(self)
+        self.image_viewer = ImageViewer(self.settings, self)
         self.video_viewer = VideoViewer(self.settings, self)
         self.stack.addWidget(self.image_viewer)
         self.stack.addWidget(self.video_viewer)

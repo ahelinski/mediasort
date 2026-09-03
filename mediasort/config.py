@@ -72,6 +72,15 @@ DEFAULT_SETTINGS = {
     # proportionally with the cursor, so the time under the cursor stays
     # exactly under it inside the zoomed window.
     "video_zoom_ratio": 0.25,
+    # Maximum enlargement of a photo that is SMALLER than the window when
+    # displayed full-screen (4.0 = up to 400% of its native size). Small
+    # photos are never blown up further than this, so e.g. a 500 px wide
+    # photo on a 3840 px screen is shown at most 2000 px wide (centered,
+    # with black bars) instead of being stretched over the whole screen,
+    # which looks blurry. Only enlargement is limited - photos LARGER than
+    # the window are still shrunk to fit it. Set a very large value (e.g.
+    # 1000.0) to restore the old "always fill the screen" behaviour.
+    "image_max_zoom": 4.0,
     # Keys active only while the file operation (copy/move/open) dialog is
     # open.
     "file_dialog": {

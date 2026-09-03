@@ -171,6 +171,15 @@ created automatically at first launch if it does not exist).
 
 ### Photos
 - Full-screen display on a black background.
+- A photo is scaled to fill the screen while keeping its aspect ratio, but
+  is never enlarged by more than the `image_max_zoom` setting (default
+  `4.0` = 400% of its native size). Small photos are therefore shown
+  centered with black bars around them instead of being stretched across
+  the whole screen, which would look blurry (e.g. a 500 px wide photo on a
+  3840 px screen is displayed at most 2000 px wide). Photos **larger** than
+  the screen are still shrunk to fit it. Set `image_max_zoom` to a very
+  large value (e.g. `1000.0`) to restore the old "always fill the screen"
+  behaviour.
 - `Esc` — closes the application.
 - `→` — next photo/file in the folder.
 - `←` — previous photo/file in the folder.
@@ -537,7 +546,9 @@ Example: to make quitting work under both `Esc` and `Q`, just set
 You can also change the list of extensions treated as photos/videos
 (`image_extensions`, `video_extensions`), the history limit
 (`history_max_size`) and the subfolder search depth in the Open/Browse
-dialog (`browse_subfolder_depth`, default 1).
+dialog (`browse_subfolder_depth`, default 1). How much a small photo may
+be enlarged to fill the screen is controlled by `image_max_zoom` (default
+`4.0` = 400%, see the Photos section above).
 
 Video cutting settings: `ffmpeg_path` / `ffprobe_path` (explicit paths to
 the binaries; `null` = search in PATH and in `tools/`), `cut_default_mode`

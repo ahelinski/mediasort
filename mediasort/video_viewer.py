@@ -14,10 +14,15 @@ Progress bar behaviour (per spec):
   * Normally takes 0.5% of the screen's height.
   * When the cursor is in the lower quarter of the screen, it grows to
     10% of the screen's height, at 50% opacity.
-  * While CTRL is held, the bar zooms in to show only 25% of the video's
-    length, centered on the playback position at the moment CTRL was
-    pressed (the zoomed window stays fixed while CTRL is held, it does
-    not keep re-centering as playback continues).
+  * While CTRL is held, the bar zooms in to show only a slice of the
+    video's length - by default 25% (configurable via the
+    "video_zoom_ratio" setting). The slice is anchored on the MOUSE cursor
+    at the moment CTRL was pressed: its start slides proportionally with
+    the cursor's horizontal position (cursor at the left edge -> the very
+    start of the video, at the right edge -> the very end), so the time
+    under the cursor stays exactly under it inside the zoomed window. The
+    zoomed window stays fixed while CTRL is held, it does not keep
+    re-centering as playback continues.
   * Clicking (or dragging with the left mouse button) anywhere on the bar
     seeks the video to the corresponding position within whichever
     window is currently displayed (the full duration, or the zoomed-in
@@ -27,7 +32,7 @@ from PySide6.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsObject
 from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtMultimediaWidgets import QGraphicsVideoItem
 from PySide6.QtCore import Qt, QUrl, QRectF, QSizeF, Signal
-from PySide6.QtGui import QPainter, QColor, QPen, QBrush
+from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QCursor
 
 from . import styles
 
@@ -45,7 +50,6 @@ class ProgressBarItem(QGraphicsObject):
     BASE_HEIGHT_RATIO = 0.005   # 0.5% of screen height (normal state)
     HOVER_HEIGHT_RATIO = 0.10   # 10% of screen height (hovered state)
     HOVER_OPACITY = 0.5
-    ZOOM_WINDOW_RATIO = 0.25    # show 25% of video length when zoomed
 
     seek_requested = Signal(float)  # fraction within the current window
 
@@ -309,6 +313,43 @@ class VideoViewer(QGraphicsView):
     def is_paused(self):
         return self.player.playbackState() != QMediaPlayer.PlayingState
 
+    def _zoom_ratio(self):
+        """Fraction of the video shown on the bar while the CTRL zoom is
+        active - read from the "video_zoom_ratio" setting (default 25%).
+        Clamped to a sane 1%..100% range."""
+        ratio = self.settings.get("video_zoom_ratio", default=0.25)
+        try:
+            ratio = float(ratio)
+        except (TypeError, ValueError):
+            ratio = 0.25
+        return max(0.01, min(1.0, ratio))
+
+    def _compute_zoom_window(self, duration):
+        """Return ``(start_ms, end_ms)`` of the CTRL zoom window, anchored
+        on the mouse cursor.
+
+        The cursor's horizontal position (0.0 = left edge .. 1.0 = right
+        edge of the viewport) is captured at the moment CTRL is pressed,
+        and the window's start slides proportionally with it::
+
+            start = r * (duration - window_len)
+
+        So with the cursor at the left edge the window begins at the very
+        start of the video, at the right edge it ends at the very end,
+        and the time under the cursor at press time stays exactly under
+        the cursor inside the zoomed window (clicking there seeks
+        precisely to it)."""
+        window_len = duration * self._zoom_ratio()
+        window_len = max(1.0, min(window_len, duration))
+        viewport_w = self.viewport().width()
+        if viewport_w > 0:
+            cursor_x = self.viewport().mapFromGlobal(QCursor.pos()).x()
+            r = max(0.0, min(1.0, cursor_x / viewport_w))
+        else:
+            r = 0.5  # viewport not laid out yet - centre as a fallback
+        start = r * (duration - window_len)
+        return start, start + window_len
+
     def set_ctrl_pressed(self, pressed):
         if pressed == self._ctrl_pressed:
             return
@@ -316,12 +357,9 @@ class VideoViewer(QGraphicsView):
         if pressed:
             duration = self.player.duration()
             if duration > 0:
-                position = self.player.position()
-                window_len = max(duration * ProgressBarItem.ZOOM_WINDOW_RATIO, 1)
-                start = position - window_len / 2
-                start = max(0.0, min(start, duration - window_len))
-                self._zoom_start_ms = start
-                self._zoom_end_ms = start + window_len
+                # Freeze the window once, anchored on the cursor position
+                # at this exact moment (see _compute_zoom_window).
+                self._zoom_start_ms, self._zoom_end_ms = self._compute_zoom_window(duration)
             else:
                 self._zoom_start_ms = None
                 self._zoom_end_ms = None

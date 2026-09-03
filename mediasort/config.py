@@ -66,6 +66,12 @@ DEFAULT_SETTINGS = {
         "set_cut_end": ["]"],
         "show_cut_dialog": ["X"]
     },
+    # Fraction of the video shown on the progress bar while the CTRL zoom
+    # is held (0.25 = 25%). The zoomed window is anchored on the mouse
+    # cursor position at the moment CTRL is pressed: its start slides
+    # proportionally with the cursor, so the time under the cursor stays
+    # exactly under it inside the zoomed window.
+    "video_zoom_ratio": 0.25,
     # Keys active only while the file operation (copy/move/open) dialog is
     # open.
     "file_dialog": {

@@ -196,9 +196,14 @@ created automatically at first launch if it does not exist).
   - when the cursor is in the bottom quarter of the screen, the bar grows to
     10% of the screen height and becomes semi-transparent (50% opacity),
   - holding `Ctrl` "zooms" the bar — at the moment the key is pressed the
-    range freezes at 25% of the video length, centred on the current frame
-    (the range does not move further while `Ctrl` is held, even if the video
-    keeps playing),
+    range freezes at a slice of the video length (25% by default,
+    configurable via the `video_zoom_ratio` setting in settings.json),
+    anchored on the **mouse cursor**: the slice's start slides
+    proportionally with the cursor's horizontal position (cursor at the
+    left edge -> the very start of the video, at the right edge -> the
+    very end), so the time under the cursor stays exactly under it inside
+    the zoomed slice. The range does not move further while `Ctrl` is
+    held, even if the video keeps playing,
   - **clicking (or dragging with the left mouse button held) on the bar
     seeks the video to the corresponding position** — in normal mode relative
     to the whole video length, and in zoom mode (`Ctrl`) relative to the

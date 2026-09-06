@@ -22,6 +22,7 @@ from .i18n import tr
 from .key_utils import matches_any, shortcut_label
 from .selection_preview import SelectionPreviewWidget
 from .tags_db import MAX_TAG_LENGTH
+from .tag_suggestions import TagSuggestionBox
 
 
 class TagAssignDialog(QDialog):
@@ -50,6 +51,11 @@ class TagAssignDialog(QDialog):
         }
 
         self._build_ui()
+        # Tag autocomplete: existing tags starting with the typed text are
+        # suggested after the 2nd character (see tag_suggestions.py).
+        self._suggestions = TagSuggestionBox(
+            self, self.tag_edit, lambda: self.tags_db.all_tags()
+        )
         self._reload_tag_list()
         self._refresh_selection_ui()
         self._refresh_tag_preview()

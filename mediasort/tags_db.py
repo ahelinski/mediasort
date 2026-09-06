@@ -33,7 +33,7 @@ from .app_log import log_exception
 APP_DIR = Path(__file__).resolve().parent
 DEFAULT_DB_PATH = APP_DIR / "tags.db"
 
-MAX_TAG_LENGTH = 24
+MAX_TAG_LENGTH = 32
 WHOLE_FILE_MARKER = -1
 MAX_FILES_FOR_TAG_COUNTS = 500
 

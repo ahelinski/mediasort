@@ -21,6 +21,7 @@ from PySide6.QtGui import QKeyEvent
 from .tags_db import MAX_TAG_LENGTH
 from .i18n import tr
 from . import styles
+from .tag_suggestions import TagSuggestionBox
 
 
 def _format_ts(seconds):
@@ -52,6 +53,11 @@ class TagManagementDialog(QDialog):
         }
 
         self._build_ui()
+        # Tag autocomplete: existing tags starting with the typed text are
+        # suggested after the 2nd character (see tag_suggestions.py).
+        self._suggestions = TagSuggestionBox(
+            self, self.tag_edit, lambda: self.tags_db.all_tags()
+        )
         self._reload_recent_tags()
         self._reload_file_tags()
 

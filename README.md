@@ -415,7 +415,11 @@ error message).
 - **`Ctrl+T` — assign tag** — opens a dialog with the list of **most
   recently assigned tags** (newest on top); tags already assigned to the
   current file are marked with `✓`. You can choose a tag from the list or
-  type a new one. The dialog keeps the full feature set of the file
+  type a new one. Typing in the field also autocompletes: after two
+  characters a small popup lists existing tags starting with those
+  letters (case-insensitive) — the first `↓` fills the field with the
+  first suggestion, further `↓`/`↑` walk through the rest. The dialog
+  keeps the full feature set of the file
   operation dialog — the "Selected/Current file" context, "Invert
   selection"/"Select all" and the "Selected"/"Remaining" previews. The
   third preview panel, "Tag", shows the first and last file carrying the
@@ -426,7 +430,9 @@ error message).
 - **`T` — tag management for the current file** — opens a window with a tag
   text field, the list of recently used tags on the left (up/down arrows
   select, filling the text field) and the list of the current file's tags on
-  the right (tags at video seconds shown as `{TAG}@{MM:SS}`). The video is
+  the right (tags at video seconds shown as `{TAG}@{MM:SS}`). The text field
+  has the same tag autocomplete as the assign dialog (suggestions after two
+  typed characters, walked with `↓`/`↑`). The video is
   automatically paused when this window opens and resumed when it closes.
   - `Enter` / the "Tag file" button — assigns the tag to the whole file.
   - `Shift+Enter` / the "Timestamp tag" button (visible only for videos) —
@@ -582,6 +588,7 @@ MediaSort/
     ├── file_operation_dialog.py   # copy/move dialog + selection
     ├── tags_db.py                  # local tag database (SQLite)
     ├── tag_assign_dialog.py        # tag assignment dialog (Ctrl+T)
+    ├── tag_suggestions.py          # tag autocomplete popup for the tagging dialogs
     ├── tag_management_dialog.py    # tag management for the current file (T)
     ├── tag_browse_dialog.py        # browsing files by tag (Alt+T)
     ├── i18n.py                     # UI translations (tr / tr_plural)

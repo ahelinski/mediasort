@@ -1,40 +1,16 @@
-# ============================================================================
-# MediaSort - instalator dla systemu Windows (per-user, bez administratora).
-#
-# Instalacja "w miejscu": skrypt tworzy/aktualizuje pliki obok main.py, w
-# biezacym katalogu projektu. Mozna go bezpiecznie uruchamiac wielokrotnie.
-#
-# Co robi skrypt:
-#   1. tworzy venv ".venv" (jesli nie istnieje) i instaluje w nim
-#      zaleznosci z requirements.txt (PySide6) oraz PyInstaller,
-#   2. buduje z packaging/windows/launcher.py maly plik MediaSort.exe
-#      (PyInstaller: onefile, bez konsoli), ktory uruchamia wlasciwa
-#      aplikacje z venv - odpowiednik linuksowego ms.desktop, ktory
-#      wskazuje na .venv/bin/python3 main.py,
-#   3. rejestruje MediaSort.exe w menu "Otworz za pomoca" dla obrazow i
-#      wideo (ProgID "MediaSort.Media" + OpenWithProgids w
-#      HKCU\Software\Classes). Istniejacych domyslnych skojarzen NIE
-#      nadpisuje - Windows oferuje MediaSort obok nich.
-#
-# Opcjonalnie (do wycinania wideo):  -WithFFmpeg
-#   Pobiera statyczne ffmpeg.exe/ffprobe.exe (gyan.dev) do katalogu tools\
-#   i wpisuje ich sciezki do mediasort/settings.json. Bez tego kroku
-#   funkcja "Wytnij fragment" wymaga ffmpeg zainstalowanego w systemie
-#   albo recznie wpisanej sciezki w ustawieniach.
-#
-# Uruchamianie:
-#     powershell -NoProfile -ExecutionPolicy Bypass -File install_windows.ps1
-#     powershell -NoProfile -ExecutionPolicy Bypass -File install_windows.ps1 -WithFFmpeg
-#   albo dwuklik na install_windows.cmd (bez -WithFFmpeg).
-#
-# Odinstalowanie: uninstall_windows.cmd
-# ============================================================================
-
 param(
     [switch]$WithFFmpeg
 )
 
 $ErrorActionPreference = 'Stop'
+# W PowerShell 7.3+ ta opcja powoduje, ze KAZDE wywolanie programu zewnetrznego
+# (py, python, pip, PyInstaller...) z niezerowym kodem wyjscia natychmiast rzuca
+# wyjatek terminujacy - z pominieciem logiki "sprawdz $LASTEXITCODE i kontynuuj",
+# ktora ten skrypt wykorzystuje np. przy szukaniu odpowiedniej wersji Pythona.
+# Wylaczamy to, zeby skrypt sam decydowal, kiedy blad jest fatalny.
+if (Test-Path Variable:PSNativeCommandUseErrorActionPreference) {
+    $PSNativeCommandUseErrorActionPreference = $false
+}
 
 # --- sciezki ---------------------------------------------------------------
 $RepoRoot  = (Resolve-Path -LiteralPath $PSScriptRoot).Path
@@ -104,10 +80,14 @@ function Find-SystemPython {
     if ($candidates.Count -eq 0) {
         throw 'Nie znaleziono Pythona. Zainstaluj Pythona 3.9+ z https://www.python.org/downloads/ (zaznacz "py launcher" i "Add python.exe to PATH") i uruchom ponownie.'
     }
+    # Uzywamy tymczasowego pliku .py zamiast "-c '...'", bo przekazywanie
+    # cudzyslowow przez launcher py.exe do python.exe bywa zawodne w Windows/PowerShell.
+    $probeScript = Join-Path $env:TEMP 'mediasort_probe_pyver.py'
+    'import sys; print("%d.%d" % sys.version_info[:2])' | Set-Content -LiteralPath $probeScript -Encoding ASCII
     foreach ($name in $candidates) {
-        $probe = @('-c', 'import sys; print("%d.%d" % sys.version_info[:2])')
-        if ($name -eq 'py') { $probe = @('-3') + $probe }
-        $out = & $name @probe 2>$null
+        $probeArgs = @($probeScript)
+        if ($name -eq 'py') { $probeArgs = @('-3') + $probeArgs }
+        $out = & $name @probeArgs 2>$null
         if ($LASTEXITCODE -ne 0) { continue }
         $verLine = ($out | Select-Object -Last 1)
         if ($verLine -match '^(\d+)\.(\d+)') {
@@ -115,10 +95,12 @@ function Find-SystemPython {
             $vMinor = [int]$Matches[2]
             if ($vMajor -eq 3 -and $vMinor -ge 9) {
                 Write-Ok ('Znaleziono Pythona {0}.{1} (komenda: {2}).' -f $vMajor, $vMinor, $name)
+                Remove-Item -LiteralPath $probeScript -Force -ErrorAction SilentlyContinue
                 return $name
             }
         }
     }
+    Remove-Item -LiteralPath $probeScript -Force -ErrorAction SilentlyContinue
     throw 'Brak odpowiedniego Pythona (wymagany 3.9+). Zainstaluj z https://www.python.org/downloads/ i uruchom ponownie.'
 }
 
@@ -149,8 +131,13 @@ function Install-Dependencies {
 
 function Ensure-PyInstaller {
     param([string]$VenvPy)
-    & $VenvPy -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('PyInstaller') else 1)"
-    if ($LASTEXITCODE -ne 0) {
+    $probeScript = Join-Path $env:TEMP 'mediasort_probe_pyinstaller.py'
+    "import importlib.util, sys`nsys.exit(0 if importlib.util.find_spec('PyInstaller') else 1)" |
+        Set-Content -LiteralPath $probeScript -Encoding ASCII
+    & $VenvPy $probeScript 2>$null
+    $found = ($LASTEXITCODE -eq 0)
+    Remove-Item -LiteralPath $probeScript -Force -ErrorAction SilentlyContinue
+    if (-not $found) {
         Write-Step 'Instalowanie PyInstaller (do budowy MediaSort.exe) ...'
         & $VenvPy -m pip install --disable-pip-version-check pyinstaller
         if ($LASTEXITCODE -ne 0) { throw 'Nie udalo sie zainstalowac PyInstaller.' }
@@ -343,7 +330,9 @@ try {
     Write-Host 'Odinstalowanie:          uninstall_windows.cmd'
 } catch {
     Write-Host ''
-    Write-Host ('BLAD: ' + $_.Exception.Message) -ForegroundColor Red
+    Write-Host 'BLAD:' -ForegroundColor Red
+    ($_.Exception.Message -split "`r?`n") | ForEach-Object { Write-Host ('  ' + $_) -ForegroundColor Red }
+    Write-Host ('  (zrodlo: ' + $_.InvocationInfo.ScriptLineNumber + ')') -ForegroundColor DarkGray
     Write-Host 'Jesli problem dotyczy budowy exe, artefakty do diagnozy zostaly w: build/ i dist/.'
     exit 1
 }

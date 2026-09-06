@@ -451,6 +451,10 @@ class FileOperationDialog(QDialog):
                 if action == "copy":
                     shutil.copy2(str(src), str(target))
                 else:
+                    # release current file before moving
+                    current_norm = os.path.normcase(os.path.abspath(self.current_file))
+                    if os.path.normcase(os.path.abspath(src)) == current_norm:
+                        self.parent().release_video_handle()
                     shutil.move(str(src), str(target))
                     succeeded_targets[src_str] = str(target)
                 succeeded.append(src_str)
@@ -468,6 +472,8 @@ class FileOperationDialog(QDialog):
         self.settings.set_last_used_location(destination_folder)
         self.performed_action = action
         self.affected_paths = succeeded
+
+
 
         if action == "move" and self.tags_db is not None:
             # Tags follow the file to its new location instead of being

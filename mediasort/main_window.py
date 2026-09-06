@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QMainWindow, QStackedWidget, QApplication, QLabel, QPushButton,
     QVBoxLayout, QWidget, QMessageBox,
 )
-from PySide6.QtCore import Qt, QEvent
+from PySide6.QtCore import Qt, QEvent, QUrl
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 
 from .config import Settings
@@ -218,7 +218,13 @@ class MainWindow(QMainWindow):
         else:
             self._show_message(tr("main_window.no_media_in_folder"))
 
-    # ------------------------------------------------------------------
+    def release_video_handle(self):
+        # Zatrzymanie NIE wystarczy - trzeba zwolnić samo źródło,
+        # inaczej QMediaPlayer/WMF nadal trzyma uchwyt pliku.
+        self.video_viewer.player.stop()
+        self.video_viewer.player.setSource(QUrl())
+
+        # ------------------------------------------------------------------
     # Navigation
     # ------------------------------------------------------------------
     def current_path(self):

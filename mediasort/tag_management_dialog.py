@@ -197,6 +197,10 @@ class TagManagementDialog(QDialog):
         self.changed = True
         self._reload_recent_tags()
         self._reload_file_tags()
+        # Clear the field and keep focus in it, so the next tag can be
+        # typed right away (the dialog stays open for repeated tagging).
+        self.tag_edit.clear()
+        self.tag_edit.setFocus()
 
     def _tag_timestamp(self):
         if not self.is_video:
@@ -208,6 +212,8 @@ class TagManagementDialog(QDialog):
         self.changed = True
         self._reload_recent_tags()
         self._reload_file_tags()
+        self.tag_edit.clear()
+        self.tag_edit.setFocus()
 
     # ------------------------------------------------------------------
     # Keyboard handling

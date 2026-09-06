@@ -396,7 +396,7 @@ switch.
 
 Tags and file references are stored in a local SQLite database
 (`mediasort/tags.db`, created automatically). A tag is a short string (up
-to 16 characters, longer ones are truncated; spaces inside are allowed).
+to 24 characters, longer ones are truncated; spaces inside are allowed).
 The same tag cannot be assigned twice to the same file, nor twice to the
 same second of a video — such an attempt is silently ignored (without an
 error message).

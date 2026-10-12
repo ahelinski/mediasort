@@ -86,6 +86,60 @@ def _visible_timestamp_tags(tags, current_second, limit=MAX_VISIBLE_TIMESTAMP_TA
     visible = before[len(before) - take_before:] + group + after[:take_after]
     return visible, take_before < len(before), take_after < len(after)
 
+
+def _compute_skip_ranges(tags, skip_names, duration_ms):
+    """Compute the video regions that playback must jump over automatically.
+
+    ``tags`` is the file's complete list of timestamp tags as
+    ``(name, second)`` pairs; ``skip_names`` the set of tag names that
+    start a skipped region; ``duration_ms`` the video's length in
+    milliseconds (used only for a region that runs to the end of the file).
+
+    A region starts at a skip tag's second and ends at the next timestamp
+    tag of the file - whatever its name - or at the end of the video when
+    no later tag exists. Directly following skip tags extend the same
+    region, so playback jumps once instead of stepping through each of
+    them. A region whose end is not known yet (no later tag and no known
+    duration) is left out; it appears once the duration is known.
+
+    Returns an ascending list of ``(start_ms, end_ms)`` pairs (with
+    ``start_ms < end_ms``), non-overlapping and with no contained ranges.
+    Whole-file tags (timestamp ``None``) are ignored.
+    """
+    if not tags or not skip_names:
+        return []
+    timestamps = sorted({ts for _name, ts in tags if ts is not None})
+    skip_seconds = {
+        ts for name, ts in tags if ts is not None and name in skip_names
+    }
+    if not skip_seconds:
+        return []
+
+    ranges = []
+    for start_sec in sorted(skip_seconds):
+        end_sec = None
+        for ts in timestamps:
+            if ts <= start_sec:
+                continue
+            if ts in skip_seconds:
+                continue  # another skip tag - the region simply goes on
+            end_sec = ts
+            break
+        start_ms = start_sec * 1000
+        if end_sec is not None:
+            end_ms = end_sec * 1000
+        elif duration_ms and duration_ms > 0:
+            end_ms = duration_ms
+        else:
+            continue  # unknown end (still loading) - recomputed later
+        if end_ms <= start_ms:
+            continue
+        if ranges and end_ms <= ranges[-1][1]:
+            continue  # already covered by the region that started earlier
+        ranges.append((start_ms, end_ms))
+    return ranges
+
+
 def _pause_video_while_open(f):
 
     def wrapper(*args, **kwargs):
@@ -152,6 +206,10 @@ class MainWindow(QMainWindow):
         self.time_label.hide()
         self.video_viewer.player.positionChanged.connect(self._update_time_label)
         self.video_viewer.player.durationChanged.connect(self._update_time_label)
+        # "Skip" tags: jump over the region that starts at such a tag (see
+        # _compute_skip_ranges). Connected here so it runs on every seek/playback
+        # step, whatever moved the position.
+        self.video_viewer.player.positionChanged.connect(self._enforce_skip_tags)
         # A/B cut marks set with [ / ] - reflect them in the time label.
         self.video_viewer.cut_marks_changed.connect(self._update_time_label)
 
@@ -169,6 +227,17 @@ class MainWindow(QMainWindow):
         # independent of the currently visible window (which follows the
         # playback position - see _refresh_timestamp_tags_window).
         self._all_timestamp_tags = []
+        # The file's COMPLETE timestamp-tag list - unlike _all_timestamp_tags
+        # it is never narrowed by the "timestamp tag filter", because the
+        # skip-tag regions must follow the media, not the overlay.
+        self._file_timestamp_tags = []
+        # Cached regions to jump over (see _compute_skip_ranges and
+        # _recompute_skip_ranges) plus the duration they were computed
+        # for, so a region running to the end of the video is refreshed
+        # once the duration is known.
+        self._skip_ranges = []
+        self._skip_ranges_duration_ms = None
+        self._checking_skip = False
         # The (name, ts) tags currently shown as buttons, used to detect
         # whether the visible window changed and needs a rebuild.
         self._visible_keys = []
@@ -488,6 +557,9 @@ class MainWindow(QMainWindow):
         self._timestamp_tag_buttons = []
         self._visible_keys = []
         self._all_timestamp_tags = []
+        self._file_timestamp_tags = []
+        self._skip_ranges = []
+        self._skip_ranges_duration_ms = None
         self._remove_timestamp_tag_items()
 
     def _remove_timestamp_tag_items(self):
@@ -510,19 +582,68 @@ class MainWindow(QMainWindow):
             self._clear_timestamp_tags()
             return
 
-        timestamp_tags = sorted(
-            ((name, ts) for name, ts in self.tags_db.file_tags(path) if ts is not None),
+        all_timestamp_tags = sorted(
+            ((name, int(ts)) for name, ts in self.tags_db.file_tags(path) if ts is not None),
             key=lambda tag: tag[1],
         )
+        # The skip-tag regions always follow the whole file, even while the
+        # display filter below hides some tags.
+        self._file_timestamp_tags = all_timestamp_tags
         # With the Browse dialog's "Filtruj znaczniki czasowe" option
         # active, only timestamp tags of the chosen tags are shown.
+        timestamp_tags = all_timestamp_tags
         if self.timestamp_tag_filter:
             timestamp_tags = [
-                t for t in timestamp_tags if t[0] in self.timestamp_tag_filter
+                t for t in all_timestamp_tags if t[0] in self.timestamp_tag_filter
             ]
-        self._all_timestamp_tags = [(name, int(ts)) for name, ts in timestamp_tags]
+        self._all_timestamp_tags = list(timestamp_tags)
+        self._recompute_skip_ranges()
         self._refresh_timestamp_tags_window(force=True)
         self._position_overlays()
+
+    # -- "skip" tags ------------------------------------------------------
+    def _skip_tag_names(self):
+        """Names of the timestamp tags that mark a region to jump over -
+        the "skip_tags" setting (a list; a plain string is accepted too,
+        for convenience). The camelCase spelling "skipTags" is accepted as
+        an alias. Anything else (including a missing key) means "no skip
+        tags" - the feature is simply off."""
+        names = self.settings.get("skip_tags", default=None)
+        if names is None:
+            names = self.settings.get("skipTags", default=[])
+        if isinstance(names, str):
+            names = [names]
+        if not isinstance(names, (list, tuple, set)):
+            return set()
+        return {str(name).strip() for name in names if str(name).strip()}
+
+    def _recompute_skip_ranges(self):
+        """Refresh the cached regions to jump over for the current video
+        (see _compute_skip_ranges). The current duration is remembered so the
+        regions are refreshed automatically once it becomes known."""
+        duration_ms = self.video_viewer.player.duration()
+        self._skip_ranges_duration_ms = duration_ms
+        self._skip_ranges = _compute_skip_ranges(
+            self._file_timestamp_tags, self._skip_tag_names(), duration_ms
+        )
+
+    def _enforce_skip_tags(self, position_ms):
+        """Jump over a skip-tag region as soon as the playback position
+        reaches its start. Regions running to the end of the video are
+        refreshed lazily, because the duration can become known only after
+        the file's tags were loaded."""
+        if self._checking_skip:
+            return
+        if self.video_viewer.player.duration() != self._skip_ranges_duration_ms:
+            self._recompute_skip_ranges()
+        for start_ms, end_ms in self._skip_ranges:
+            if start_ms <= position_ms < end_ms:
+                self._checking_skip = True
+                try:
+                    self.video_viewer.player.setPosition(int(end_ms))
+                finally:
+                    self._checking_skip = False
+                return
 
     def _refresh_timestamp_tags_window(self, force=False):
         """Recompute which timestamp tags fit on screen around the current

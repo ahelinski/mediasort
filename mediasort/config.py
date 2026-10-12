@@ -120,6 +120,15 @@ DEFAULT_SETTINGS = {
     # main_window._visible_timestamp_tags); "+" markers indicate hidden
     # tags before/after the window.
     "max_visible_timestamp_tags": 20,
+    # Tag names that mark a fragment of a video to jump over while
+    # watching (see main_window._compute_skip_ranges). As soon as playback reaches
+    # such a timestamp tag, it jumps to the next timestamp tag of the file
+    # (whatever its name) or to the end of the video, so the tagged
+    # fragment is never played. E.g. ["skip"] makes the time from every
+    # "skip@MM:SS" tag up to the next tag (or the end) play automatically
+    # skipped. The camelCase spelling "skipTags" is accepted as an alias.
+    # Empty list = the feature is off.
+    "skip_tags": [],
     # Persisted runtime state below - user-specific, so fresh installs
     # start with the neutral values (the live settings.json overrides
     # them anyway via the deep merge).

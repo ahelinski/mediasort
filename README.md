@@ -200,6 +200,17 @@ created automatically at first launch if it does not exist).
   browsed one; when the "Filter timestamp tags" option of the Open/Browse
   dialog is active — only the selected tags' timestamps). Navigation wraps
   at the ends of the tag list. Works only while watching a video.
+- **Skipping tagged fragments (`skip_tags`)** — the `skip_tags` list in
+  `settings.json` (e.g. `["skip"]`) names timestamp tags that mark a
+  fragment to jump over. As soon as playback reaches such a tag, the player
+  jumps to the **next timestamp tag of the file** (whatever its name) or to
+  the **end of the video** when there is no later tag. Example: with tags
+  `skip@0:01`, `tag1@0:05`, `skip@0:10`, the first second plays, then the
+  player jumps to 0:05, plays up to 0:10 and the video ends there.
+  Consecutive skip tags are merged into a single jump, a tag at the same
+  second as a skip tag does not end the fragment, and the whole-file tags
+  are ignored. The list is empty by default (the feature is off); the
+  camelCase spelling `skipTags` also works.
 - Progress bar:
   - normally takes up 0.5% of the screen height,
   - when the cursor is in the bottom quarter of the screen, the bar grows to
@@ -588,7 +599,9 @@ You can also change the list of extensions treated as photos/videos
 (`history_max_size`) and the subfolder search depth in the Open/Browse
 dialog (`browse_subfolder_depth`, default 1). How much a small photo may
 be enlarged to fill the screen is controlled by `image_max_zoom` (default
-`4.0` = 400%, see the Photos section above).
+`4.0` = 400%, see the Photos section above), and `skip_tags` (e.g.
+`["skip"]`) lists the timestamp tags whose fragments are jumped over
+during playback (see the Videos section).
 
 Video cutting settings: `ffmpeg_path` / `ffprobe_path` (explicit paths to
 the binaries; `null` = search in PATH and in `tools/`), `cut_default_mode`

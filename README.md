@@ -465,6 +465,40 @@ error message).
     correctly choose the nearest next/previous mark relative to the actual
     position, rather than rigidly following the list order.
 
+### Database management (`F10`)
+
+The database window shows the number of entries, files and tags, and offers
+four maintenance operations:
+
+- **Compact database** — removes entries whose file no longer exists on
+  disk (and tags left without any entries). Paths that cannot be checked
+  (no access) are shown one by one: you can keep them, delete them, delete
+  all remaining inaccessible ones, or abort.
+- **Merge / Rename tags** — build the list of **source** tags explicitly:
+  the list of available tags (each with its number of entries, filterable)
+  is on the left — a tag is added to the selection with the **Add** button
+  or a double-click — and the chosen source tags are listed on the right,
+  each with an `×` button that removes it from the selection. The **target**
+  tag is typed in: an existing tag (picked with the autocomplete) or a
+  brand-new name. After a confirmation (worded as a *rename* when one
+  source tag is selected and as a *merge* when several are), every entry of
+  the source tags is moved to the target tag and the source tags are
+  deleted:
+  - whole-file tags become whole-file tags of the target;
+  - timestamp tags keep their timestamp (the video second);
+  - when the target already has the exact same entry (the same file, and
+    for a timestamp tag the same second), the redundant source entry is
+    simply deleted;
+  - with a single source tag this is exactly a **rename**.
+
+  The same confirmation also reports the number of entries of every source
+  tag and of the target, and after the merge a summary shows how many
+  entries were moved and how many duplicates were dropped.
+- **Export to CSV** — writes every entry as a `tag,timestamp,path` row
+  (a whole-file tag has an empty timestamp).
+- **Import from CSV** — reads the same format and appends the rows,
+  skipping those duplicating an existing entry.
+
 ## Configuring keyboard shortcuts
 
 Every action can have **one or more** triggers (key and/or mouse button) —
@@ -591,6 +625,8 @@ MediaSort/
     ├── tag_suggestions.py          # tag autocomplete popup for the tagging dialogs
     ├── tag_management_dialog.py    # tag management for the current file (T)
     ├── tag_browse_dialog.py        # browsing files by tag (Alt+T)
+    ├── db_management_dialog.py     # database tools: compact, merge/rename, CSV (F10)
+    ├── merge_tags_dialog.py        # merge / rename tags window
     ├── i18n.py                     # UI translations (tr / tr_plural)
     ├── translations/               # translation files (en.json, pl.json)
     ├── main_window.py             # main application window

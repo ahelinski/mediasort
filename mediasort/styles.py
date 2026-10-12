@@ -134,6 +134,14 @@ LINK = _link_style(COLOR_TEXT, COLOR_HOVER)
 # Destructive link-style button, e.g. "Usuń".
 DEL_LINK = _link_style(COLOR_DANGER, COLOR_HOVER)
 
+# Compact "×" remove icon for list rows (destructive, but without the
+# underline that DEL_LINK gives to text links).
+REMOVE_ICON = " ".join([
+    f"QPushButton {{ color: {COLOR_DANGER}; border: none; background: transparent; "
+    "padding: 0 6px; font-size: 15px; font-weight: bold; }",
+    f"QPushButton:hover {{ color: {COLOR_HOVER}; }}",
+])
+
 # ---------------------------------------------------------------------------
 # Real (non-link) push buttons for primary/secondary dialog actions.
 # A widget-level stylesheet overrides the flat link look that styles.DIALOG

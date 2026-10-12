@@ -1,13 +1,16 @@
 """Database management dialog (default key: F10).
 
 Shows a summary of the tags database (number of assignments / entries,
-distinct files, distinct tags) and offers three maintenance operations:
+distinct files, distinct tags) and offers four maintenance operations:
 
   * Compact - scan every file path in the database and delete the linked
     entries when the file no longer exists on disk (orphaned tags left
     without any assignments are dropped as well).  Paths that cannot be
     checked because access is denied are presented to the user, who may
     keep, delete, delete all remaining inaccessible entries, or abort.
+  * Merge / Rename tags - move every entry of one or more chosen source
+    tags to a target tag (an existing one or a new name) and delete the
+    source tags; see merge_tags_dialog.py.
   * Export to CSV - write every assignment as (tag, timestamp, path)
     rows without internal ids; a whole-file tag has an empty timestamp.
   * Import from CSV - append assignments from the same format, skipping
@@ -27,6 +30,7 @@ from PySide6.QtGui import QKeyEvent
 
 from .i18n import tr
 from . import styles
+from .merge_tags_dialog import MergeTagsDialog
 
 
 class DbManagementDialog(QDialog):
@@ -58,12 +62,15 @@ class DbManagementDialog(QDialog):
         ops_box = QGroupBox(tr("db_manage.operations_group"), self)
         ops_layout = QVBoxLayout(ops_box)
         self.compact_btn = QPushButton(tr("db_manage.compact_btn"), self)
+        self.merge_btn = QPushButton(tr("db_manage.merge_btn"), self)
         self.export_btn = QPushButton(tr("db_manage.export_btn"), self)
         self.import_btn = QPushButton(tr("db_manage.import_btn"), self)
         self.compact_btn.clicked.connect(self._compact)
+        self.merge_btn.clicked.connect(self._merge_tags)
         self.export_btn.clicked.connect(self._export)
         self.import_btn.clicked.connect(self._import_csv)
         ops_layout.addWidget(self.compact_btn)
+        ops_layout.addWidget(self.merge_btn)
         ops_layout.addWidget(self.export_btn)
         ops_layout.addWidget(self.import_btn)
         layout.addWidget(ops_box)
@@ -136,6 +143,14 @@ class DbManagementDialog(QDialog):
                 files=removed_files, entries=removed_entries, tags=removed_tags,
             ),
         )
+
+    def _merge_tags(self):
+        """Open the merge/rename window (source tags -> one target tag)
+        and refresh the statistics when anything was merged."""
+        dialog = MergeTagsDialog(tags_db=self.tags_db, parent=self)
+        dialog.exec()
+        if dialog.merged:
+            self._refresh_stats()
 
     def _export(self):
         path, _selected_filter = QFileDialog.getSaveFileName(

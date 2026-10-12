@@ -438,6 +438,110 @@ class TagsDatabase:
             raise
         return len(delete_paths), removed_entries, removed_tags, False
 
+    def tag_entry_counts(self):
+        """Return ``{tag_name: number_of_entries}`` for every tag in the
+        database - one query for the whole list, used by the merge/rename
+        dialog to show each tag's entry count."""
+        cur = self.conn.execute(
+            """
+            SELECT t.name AS name, COUNT(a.id) AS n
+            FROM tags t
+            LEFT JOIN tag_assignments a ON a.tag_id = t.id
+            GROUP BY t.id
+            ORDER BY t.name COLLATE NOCASE ASC
+            """
+        )
+        return {r["name"]: r["n"] for r in cur.fetchall()}
+
+    def merge_tags(self, source_tags, target_tag):
+        """Merge (or rename) tags: move every entry of each source tag to
+        `target_tag`, creating the target when it does not exist yet, then
+        delete the now-empty source tags.
+
+        Entries are moved "as they are": a whole-file entry stays a
+        whole-file entry, a video-timestamp entry keeps its second. When
+        the target already has the exact same entry (same file; and, for a
+        timestamp entry, the same second), the redundant source entry is
+        simply dropped - which matches the "don't assign the same tag
+        twice" rule used everywhere else. Merging a single source tag into
+        another name is therefore also the "rename tag" operation.
+
+        The target inherits the most recent "assigned"/"viewed" timestamps
+        of the merged source tags, so a rename does not push the tag out
+        of the "recently used" lists.
+
+        Returns a dict with ``target``, ``sources`` (the names actually
+        merged), ``entries`` (all source entries), ``moved``, ``dropped``
+        and ``target_entries`` (the target's entry count afterwards), or
+        None when there is nothing to do (empty target, no source tag that
+        exists, or every source is already the target).
+        """
+        try:
+            target = self.normalize_tag(target_tag)
+            if not target:
+                return None
+            # Keep only usable source tags: non-empty, different from the
+            # target, de-duplicated and actually present in the database.
+            sources = []
+            for name in source_tags or []:
+                name = self.normalize_tag(name)
+                if (name and name != target and name not in sources
+                        and self._find_tag_id(name) is not None):
+                    sources.append(name)
+            if not sources:
+                return None
+
+            self.conn.execute("INSERT OR IGNORE INTO tags(name) VALUES (?)", (target,))
+            target_id = self._find_tag_id(target)
+
+            entries = moved = dropped = 0
+            last_assigned = last_viewed = 0.0
+            for name in sources:
+                row = self.conn.execute(
+                    "SELECT id, last_assigned_at, last_viewed_at FROM tags WHERE name = ?",
+                    (name,),
+                ).fetchone()
+                src_id = row["id"]
+                entries += self.conn.execute(
+                    "SELECT COUNT(*) AS n FROM tag_assignments WHERE tag_id = ?",
+                    (src_id,),
+                ).fetchone()["n"]
+                last_assigned = max(last_assigned, row["last_assigned_at"] or 0.0)
+                last_viewed = max(last_viewed, row["last_viewed_at"] or 0.0)
+                # Move everything that doesn't conflict with an existing
+                # target entry (the UNIQUE constraint keeps those out)...
+                moved += self.conn.execute(
+                    "UPDATE OR IGNORE tag_assignments SET tag_id = ? WHERE tag_id = ?",
+                    (target_id, src_id),
+                ).rowcount
+                # ...drop the conflicting leftovers, then the source tag.
+                dropped += self.conn.execute(
+                    "DELETE FROM tag_assignments WHERE tag_id = ?", (src_id,)
+                ).rowcount
+                self.conn.execute("DELETE FROM tags WHERE id = ?", (src_id,))
+
+            self.conn.execute(
+                "UPDATE tags SET last_assigned_at = MAX(last_assigned_at, ?), "
+                "last_viewed_at = MAX(last_viewed_at, ?) WHERE id = ?",
+                (last_assigned, last_viewed, target_id),
+            )
+            target_entries = self.conn.execute(
+                "SELECT COUNT(*) AS n FROM tag_assignments WHERE tag_id = ?",
+                (target_id,),
+            ).fetchone()["n"]
+            self.conn.commit()
+        except Exception as e:
+            log_exception("merge_tags", e)
+            raise
+        return {
+            "target": target,
+            "sources": sources,
+            "entries": entries,
+            "moved": moved,
+            "dropped": dropped,
+            "target_entries": target_entries,
+        }
+
     def export_csv(self, csv_path):
         """Write every assignment to `csv_path` as (tag, timestamp, path)
         rows - no internal ids.  A whole-file tag has an empty timestamp,

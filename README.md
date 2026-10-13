@@ -485,26 +485,43 @@ four maintenance operations:
   disk (and tags left without any entries). Paths that cannot be checked
   (no access) are shown one by one: you can keep them, delete them, delete
   all remaining inaccessible ones, or abort.
-- **Merge / Rename tags** — build the list of **source** tags explicitly:
-  the list of available tags (each with its number of entries, filterable)
-  is on the left — a tag is added to the selection with the **Add** button
-  or a double-click — and the chosen source tags are listed on the right,
-  each with an `×` button that removes it from the selection. The **target**
-  tag is typed in: an existing tag (picked with the autocomplete) or a
-  brand-new name. After a confirmation (worded as a *rename* when one
-  source tag is selected and as a *merge* when several are), every entry of
-  the source tags is moved to the target tag and the source tags are
-  deleted:
-  - whole-file tags become whole-file tags of the target;
-  - timestamp tags keep their timestamp (the video second);
-  - when the target already has the exact same entry (the same file, and
-    for a timestamp tag the same second), the redundant source entry is
-    simply deleted;
-  - with a single source tag this is exactly a **rename**.
-
-  The same confirmation also reports the number of entries of every source
-  tag and of the target, and after the merge a summary shows how many
-  entries were moved and how many duplicates were dropped.
+- **Manage tags** — the tag-management window. Every tag is listed with its
+  number of entries, and each row offers:
+  - **the magnifier** — shows the next occurrence of the tag without
+    closing the window. It walks through every file carrying the tag and
+    every timestamp in it, starting from where you are: the current file
+    first (on the current file the *first* timestamp is used, unless the
+    playback already sits exactly on one of the tag's timestamps, in which
+    case the *next* one is used), then the rest of the current folder
+    (wrapping around at its end), and only then the files from other
+    folders; after the last one the tour wraps around to the start. A file
+    is entered at its *first* timestamp — a timestamp wins over a plain
+    whole-file tag on the same file, and a file carrying only the
+    whole-file tag is simply opened. The application switches to
+    tag-browse mode, so `→`/`←` keep walking the same sequence afterwards.
+  - **the trash** — deletes the tag and **all** of its entries from the
+    database, after a confirmation. If that tag was being browsed or was
+    shown in the timestamp overlay, the display is refreshed.
+  - **clicking the tag name** — adds it to the *source tags* selection of
+    the merge/rename action below (the `×` on the right-hand list removes
+    it).
+  - **Merge / Rename** works as before: the chosen source tags are listed
+    on the right (each with its number of entries and an `×`), the target
+    tag is typed in (an existing tag via autocomplete, or a brand-new
+    name), and after a confirmation — worded as a *rename* for one source
+    tag and as a *merge* for several — every entry of the source tags is
+    moved to the target tag and the source tags are deleted:
+    - whole-file tags become whole-file tags of the target;
+    - timestamp tags keep their timestamp (the video second);
+    - when the target already has the exact same entry (the same file, and
+      for a timestamp tag the same second), the redundant source entry is
+      simply deleted;
+    - with a single source tag this is exactly a **rename**.
+  - **Play / Pause** starts or stops the video shown behind the window
+    (disabled while a photo is displayed). Opening the `F10` window pauses
+    a playing video; when you used the Play/Pause button the playback state
+    is left exactly as you set it, otherwise the state from opening is
+    restored on close.
 - **Export to CSV** — writes every entry as a `tag,timestamp,path` row
   (a whole-file tag has an empty timestamp).
 - **Import from CSV** — reads the same format and appends the rows,
@@ -638,8 +655,9 @@ MediaSort/
     ├── tag_suggestions.py          # tag autocomplete popup for the tagging dialogs
     ├── tag_management_dialog.py    # tag management for the current file (T)
     ├── tag_browse_dialog.py        # browsing files by tag (Alt+T)
-    ├── db_management_dialog.py     # database tools: compact, merge/rename, CSV (F10)
-    ├── merge_tags_dialog.py        # merge / rename tags window
+    ├── db_management_dialog.py     # database tools: compact, manage tags, CSV (F10)
+    ├── manage_tags_dialog.py       # browse / delete / merge / rename tags + Play-Pause
+    ├── icons.py                    # small vector icons drawn with QPainter
     ├── i18n.py                     # UI translations (tr / tr_plural)
     ├── translations/               # translation files (en.json, pl.json)
     ├── main_window.py             # main application window

@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QEvent, QUrl
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
+from PySide6.QtMultimedia import QMediaPlayer
 
 from .config import Settings
 from .i18n import tr
@@ -140,6 +141,61 @@ def _compute_skip_ranges(tags, skip_names, duration_ms):
     return ranges
 
 
+def _tag_file_sort_key(path):
+    """Sort key used to order tag instances by file - the same order the
+    folder browser uses (by file name, case-insensitively)."""
+    return (os.path.basename(path).lower(), path)
+
+
+def _order_tag_instances(instances, current_path, current_folder):
+    """Order a tag's instances for tag browsing / the magnifier button.
+
+    Files are ordered so that browsing starts where the user is and
+    continues with the current folder before moving on:
+
+      1. the current file,
+      2. the rest of the current folder, starting from the next file name
+         and wrapping around to the beginning of the folder,
+      3. the files from every other folder (by name).
+
+    ``instances`` is the tag's ``[(path, timestamp_or_None), ...]`` list
+    (as returned by TagsDatabase.instances_for_tag); within one file the
+    instances keep their order (whole-file first, then timestamps
+    ascending). Only the paths present in ``instances`` appear in the
+    result, so a stale entry never gets its own position.
+
+    The result is a list of ``(path, timestamp_or_None)`` pairs.
+    """
+    by_file = {}
+    for path, ts in instances:
+        by_file.setdefault(path, []).append(ts)
+    if not by_file:
+        return []
+
+    folder = str(Path(current_folder).resolve()) if current_folder else None
+
+    def in_current_folder(path):
+        return folder is not None and str(Path(path).parent.resolve()) == folder
+
+    files = sorted(by_file, key=_tag_file_sort_key)
+    if current_path and current_path in by_file:
+        current_key = _tag_file_sort_key(current_path)
+        same_folder = [p for p in files if in_current_folder(p)]
+        after = [p for p in same_folder if _tag_file_sort_key(p) > current_key]
+        before = [p for p in same_folder if _tag_file_sort_key(p) < current_key]
+        others = [p for p in files if not in_current_folder(p)]
+        ordered_files = [current_path] + after + before + others
+    else:
+        same_folder = [p for p in files if in_current_folder(p)]
+        others = [p for p in files if not in_current_folder(p)]
+        ordered_files = same_folder + others
+
+    ordered = []
+    for path in ordered_files:
+        ordered.extend((path, ts) for ts in by_file[path])
+    return ordered
+
+
 def _pause_video_while_open(f):
 
     def wrapper(*args, **kwargs):
@@ -210,6 +266,15 @@ class MainWindow(QMainWindow):
         # _compute_skip_ranges). Connected here so it runs on every seek/playback
         # step, whatever moved the position.
         self.video_viewer.player.positionChanged.connect(self._enforce_skip_tags)
+        # Whether the next video FILE should start playing: tag-based
+        # navigation (the Manage-tags magnifier and the arrows in tag mode)
+        # follows the playback state of the file shown before - a playing
+        # video is followed by a playing one, a paused video by a paused
+        # one. Kept in sync with the real player state, and reset to
+        # "play" whenever an image is shown (there is no video state to
+        # carry over then).
+        self._video_play_intent = True
+        self.video_viewer.player.playbackStateChanged.connect(self._on_playback_state_changed)
         # A/B cut marks set with [ / ] - reflect them in the time label.
         self.video_viewer.cut_marks_changed.connect(self._update_time_label)
 
@@ -269,6 +334,15 @@ class MainWindow(QMainWindow):
         self.tag_mode_name = None
         self.tag_mode_instances = []
         self.tag_mode_index = 0
+        # Optional custom order of tag_mode_instances: {path: rank} built
+        # by the Manage-tags magnifier (current file first, then the rest
+        # of the current folder, then the other folders). None = the
+        # standard (path, timestamp) order used by Alt+T.
+        self._tag_mode_rank = None
+        # State of the magnifier "tour" (see goto_tag_instance): which tag
+        # is being walked, its ordered files and the current position in
+        # that order. None = no tour in progress.
+        self._magnifier_tour = None
 
         self._rescan_media()
         self.current_index = 0
@@ -338,6 +412,8 @@ class MainWindow(QMainWindow):
         self.selected_paths = set()
         self.filter_active = False
         self.tag_mode_active = False
+        self._tag_mode_rank = None
+        self._magnifier_tour = None
         # A fresh folder is a new browsing context - drop any timestamp
         # tag filter coming from an earlier Browse dialog confirmation.
         self.timestamp_tag_filter = None
@@ -367,6 +443,8 @@ class MainWindow(QMainWindow):
         self.selected_paths = set()
         self.filter_active = False
         self.tag_mode_active = False
+        self._tag_mode_rank = None
+        self._magnifier_tour = None
         self.timestamp_tag_filter = set(timestamp_tag_filter) if timestamp_tag_filter else None
         self.video_viewer.stop()
         if self.media_items:
@@ -387,7 +465,151 @@ class MainWindow(QMainWindow):
         self.tag_mode_name = tag_name
         self.tag_mode_instances = instances
         self.tag_mode_index = 0
+        # Alt+T uses the standard (path, timestamp) order.
+        self._tag_mode_rank = None
+        self._magnifier_tour = None
         self._show_current()
+
+    def goto_tag_instance(self, tag_name):
+        """Magnifier action of the "Manage tags" window: show the next
+        occurrence of `tag_name`.
+
+        The sequence is a "tour" of every file carrying the tag, ordered
+        from where the user is (the current file, then the rest of the
+        current folder - wrapping around - and only then the other
+        folders), so repeated clicks walk through all of the tag's files
+        and all of its timestamps and finally wrap around to the start:
+
+          * on the current file the FIRST timestamp is used, unless the
+            playback is already exactly on one of them, in which case the
+            NEXT one is used; when there is none, the tour moves on;
+          * a newly reached file starts at its FIRST timestamp (a timestamp
+            wins over a whole-file entry on the same file); a file carrying
+            only the whole-file entry is simply opened;
+          * a fresh tour is built whenever the tag, the database contents
+            or the displayed file changed (e.g. after using the arrow keys).
+
+        The window stays open - the file is changed through the normal
+        display path, and the application switches to tag-browse mode with
+        the instances in the tour's order, so the arrow keys keep walking
+        exactly the same sequence once the window is closed."""
+        instances = [
+            (path, ts) for path, ts in self.tags_db.instances_for_tag(tag_name)
+            if Path(path).exists()
+        ]
+        if not instances:
+            return
+        # Instances per file, keeping the database order (whole-file entry
+        # first, then timestamps ascending) and the timestamps alone.
+        by_file = {}
+        for path, ts in instances:
+            by_file.setdefault(path, []).append(ts)
+        timestamps = {
+            path: sorted(ts for ts in ts_list if ts is not None)
+            for path, ts_list in by_file.items()
+        }
+
+        current = self.current_path()
+        folder = str(Path(current).parent) if current else self.folder
+        second = (
+            self.video_viewer.player.position() // 1000
+            if self.current_kind() == "video" else 0
+        )
+
+        tour = self._magnifier_tour
+        tour_current = (
+            tour is not None
+            and tour["tag"] == tag_name
+            and tour["instances"] == instances
+            and tour["files"]
+            and tour["files"][tour["file_index"]] == current
+        )
+        if not tour_current:
+            ordered = _order_tag_instances(instances, current, folder)
+            files = list(dict.fromkeys(path for path, _ts in ordered))
+            if not files:
+                return
+            if current in files:
+                file_index = files.index(current)
+                seconds = timestamps.get(current, [])
+                # -1 = "the first timestamp is still ahead"; otherwise the
+                # playback already sits on that timestamp and the tour
+                # continues with the following one.
+                ts_index = seconds.index(second) if second in seconds else -1
+            else:
+                file_index = 0
+                ts_index = -1
+            tour = {
+                "tag": tag_name,
+                "instances": instances,
+                "files": files,
+                "file_index": file_index,
+                "ts_index": ts_index,
+            }
+
+        # Advance the tour by one occurrence.
+        files = tour["files"]
+        file_index = tour["file_index"]
+        ts_index = tour["ts_index"]
+        seconds = timestamps.get(files[file_index], [])
+        if ts_index + 1 < len(seconds):
+            ts_index += 1
+        else:
+            file_index = (file_index + 1) % len(files)
+            ts_index = 0 if timestamps.get(files[file_index]) else -1
+        path = files[file_index]
+        seconds = timestamps.get(path, [])
+        timestamp_sec = seconds[ts_index] if ts_index >= 0 else None
+        tour["file_index"] = file_index
+        tour["ts_index"] = ts_index
+        self._magnifier_tour = tour
+
+        self.tags_db.mark_tag_viewed(tag_name)
+        # Tag-browse mode gets the very order of the tour, so the arrow
+        # keys continue exactly where the magnifier left off.
+        ordered = [
+            (path, ts) for path in files for ts in by_file.get(path, [])
+        ]
+        self.tag_mode_active = True
+        self.tag_mode_name = tag_name
+        self.tag_mode_instances = ordered
+        self._tag_mode_rank = {p: i for i, p in enumerate(files)}
+        self.tag_mode_index = next(
+            (
+                i for i, (p, ts) in enumerate(ordered)
+                if p == path and ts == timestamp_sec
+            ),
+            0,
+        )
+        self._show_current()
+
+    def on_tag_deleted(self, tag_name):
+        """Called by the "Manage tags" window right after a tag was removed
+        from the database: leave tag-browse mode when that tag was being
+        browsed, drop it from the timestamp-tag filter and refresh the
+        overlays - without disturbing the file currently displayed."""
+        if self.timestamp_tag_filter:
+            self.timestamp_tag_filter.discard(tag_name)
+            if not self.timestamp_tag_filter:
+                self.timestamp_tag_filter = None
+        if self.tag_mode_active and self.tag_mode_name == tag_name:
+            target = self.current_path()
+            self.tag_mode_active = False
+            self.tag_mode_name = None
+            self.tag_mode_instances = []
+            self.tag_mode_index = 0
+            self._tag_mode_rank = None
+            self._magnifier_tour = None
+            if target and os.path.exists(target):
+                # Keep showing the same file, now as an ordinary folder
+                # entry, so navigation and the info label stay correct.
+                self.folder = str(Path(target).parent)
+                self._rescan_media()
+                self.current_index = self._find_index(target)
+            self._show_current()
+            return
+        if self.current_kind() == "video":
+            self._update_timestamp_tags()
 
     def _find_index(self, file_path):
         """Return the index of `file_path` in media_items, or 0 if not found."""
@@ -417,6 +639,9 @@ class MainWindow(QMainWindow):
         path, kind = self.media_items[self.current_index]
         self.video_viewer.stop()
         if kind == "image":
+            # No video state to carry over from an image - the next video
+            # shown by the Manage-tags magnifier starts playing.
+            self._video_play_intent = True
             self.image_viewer.load(path)
             self.stack.setCurrentWidget(self.image_viewer)
             self.time_label.hide()
@@ -463,16 +688,27 @@ class MainWindow(QMainWindow):
                 and self.video_viewer.player.source().toLocalFile() == path
             )
             if already_loaded:
-                self.video_viewer.player.setPosition(target_ms)
+                # A whole-file tag carries no time, so the current frame
+                # stays as it is; a timestamp tag seeks to its second.
+                if timestamp_sec is not None:
+                    self.video_viewer.player.setPosition(target_ms)
             else:
+                # Follow the playback state of the file shown before: a
+                # playing video is followed by a playing one, a paused
+                # video by a paused one (captured before stop(), which
+                # itself reports the "stopped" state).
+                autoplay = self._video_play_intent
                 self.video_viewer.stop()
-                self.video_viewer.load(path, seek_ms=target_ms)
+                self.video_viewer.load(path, seek_ms=target_ms, autoplay=autoplay)
                 self.stack.setCurrentWidget(self.video_viewer)
             self.time_label.show()
             self._update_timestamp_tags()
             self._update_time_label()
         else:
             self.video_viewer.stop()
+            # No video state to carry over from an image - the next video
+            # starts playing unless the user pauses it.
+            self._video_play_intent = True
             self.image_viewer.load(path)
             self.stack.setCurrentWidget(self.image_viewer)
             self.time_label.hide()
@@ -645,6 +881,16 @@ class MainWindow(QMainWindow):
                     self._checking_skip = False
                 return
 
+    def _on_playback_state_changed(self, state):
+        """Keep _video_play_intent in sync with the real playback state, so
+        tag-based navigation can start the next file the same way the
+        current one is playing (or paused)."""
+        if state == QMediaPlayer.PlaybackState.PlayingState:
+            self._video_play_intent = True
+        elif state in (QMediaPlayer.PlaybackState.PausedState,
+                       QMediaPlayer.PlaybackState.StoppedState):
+            self._video_play_intent = False
+
     def _refresh_timestamp_tags_window(self, force=False):
         """Recompute which timestamp tags fit on screen around the current
         playback position and rebuild the overlay when that window changes.
@@ -799,6 +1045,20 @@ class MainWindow(QMainWindow):
                     return
             self.video_viewer.player.setPosition(int(timestamps[-1]) * 1000)  # wrap
 
+    def _tag_instance_key(self, path, timestamp_sec):
+        """Sort key of one tag instance, matching the order of
+        tag_mode_instances.
+
+        Alt+T keeps the standard (path, timestamp) order; the Manage-tags
+        magnifier installs a custom file order (current file first, then
+        the rest of the current folder, then the other folders) in
+        _tag_mode_rank. ``timestamp_sec`` None (whole-file) sorts as 0."""
+        position = 0 if timestamp_sec is None else timestamp_sec
+        rank = self._tag_mode_rank.get(path) if self._tag_mode_rank else None
+        if rank is None:
+            return (0, path, position)
+        return (1, rank, position)
+
     def _tag_mode_step(self, direction):
         """Move to the next/previous tag instance, based on the ACTUAL
         current file and playback position rather than a stored index -
@@ -806,13 +1066,11 @@ class MainWindow(QMainWindow):
         a tagged timestamp, Next/Prev still figures out the correct
         instance to jump to instead of relying on a stale counter.
 
-        Instances are compared as (file_path, effective_position) tuples,
-        where effective_position is 0 for a whole-file tag and the
-        timestamp (seconds) for a timestamp tag. This matches how
-        instances_for_tag() already orders them (file path, then time),
-        so the "next" instance is simply the first one that's strictly
-        greater than the current position, and "previous" is the last
-        one that's strictly less - wrapping around at either end.
+        Instances are compared with _tag_instance_key: file order first,
+        then the effective position (0 for a whole-file tag, the second
+        for a timestamp tag). "Next" is the first instance strictly after
+        the current position, "previous" the last one strictly before it -
+        wrapping around at either end.
         """
         if not self.tag_mode_instances:
             return
@@ -822,14 +1080,11 @@ class MainWindow(QMainWindow):
             current_frame = self.video_viewer.player.position() // 1000
         else:
             current_frame = 0
-        current_key = (current_file, current_frame)
-
-        def effective_pos(ts):
-            return 0 if ts is None else ts
+        current_key = self._tag_instance_key(current_file, current_frame)
 
         if direction > 0:
             for i, (path, ts) in enumerate(self.tag_mode_instances):
-                if (path, effective_pos(ts)) > current_key:
+                if self._tag_instance_key(path, ts) > current_key:
                     self.tag_mode_index = i
                     self._show_current()
                     return
@@ -837,7 +1092,7 @@ class MainWindow(QMainWindow):
         else:
             for i in range(len(self.tag_mode_instances) - 1, -1, -1):
                 path, ts = self.tag_mode_instances[i]
-                if (path, effective_pos(ts)) < current_key:
+                if self._tag_instance_key(path, ts) < current_key:
                     self.tag_mode_index = i
                     self._show_current()
                     return
@@ -1422,14 +1677,37 @@ class MainWindow(QMainWindow):
         if dialog.confirmed and dialog.selected_tag:
             self.enter_tag_browse_mode(dialog.selected_tag)
 
-    @_pause_video_while_open
     def _open_db_management_dialog(self):
+        """Open the database window (F10) and its "Manage tags" window.
+
+        A playing video is paused while the windows are open (so the
+        database work isn't done over running playback), but the Manage-tags
+        Play/Pause button can start it again; when the user did use that
+        button the playback state is left exactly as they set it, otherwise
+        the state from opening is restored."""
+        is_video = self.current_kind() == "video"
+        was_playing = is_video and not self.video_viewer.is_paused()
+        if was_playing:
+            self.video_viewer.toggle_pause()
+
         self._dialog_open = True
-        dialog = DbManagementDialog(tags_db=self.tags_db, parent=self)
+        dialog = DbManagementDialog(
+            tags_db=self.tags_db, parent=self, main_window=self
+        )
         self._active_dialog = dialog
         dialog.exec()
         self._dialog_open = False
         self._active_dialog = None
+
+        if is_video and was_playing and not dialog.playback_touched:
+            # Resume the video the window was opened over - but only while a
+            # video is really shown (a magnifier jump to a photo must not
+            # start the hidden player in the background).
+            if self.current_kind() == "video":
+                self.video_viewer.toggle_pause()
+        if is_video:
+            self._update_timestamp_tags()
+        dialog.deleteLater()
 
     def closeEvent(self, event):
         app = QApplication.instance()

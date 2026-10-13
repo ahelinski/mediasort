@@ -239,17 +239,29 @@ class VideoViewer(QGraphicsView):
         # setPosition() immediately after setSource()/play() can be lost,
         # since the player may reset position once loading completes.
         self._pending_seek_ms = None
+        # True when the just-loaded file must stay paused (see load());
+        # applied once the media reaches LoadedMedia, next to the pending
+        # seek, because pausing while the media is still loading is lost.
+        self._pending_pause = False
         # Absolute A/B cut-range marks (ms), None when unset. Cleared when
         # a different file is loaded.
         self._cut_start_ms = None
         self._cut_end_ms = None
 
     # ------------------------------------------------------------------
-    def load(self, path, seek_ms=None):
+    def load(self, path, seek_ms=None, autoplay=True):
+        """Load `path`, optionally starting at `seek_ms`.
+
+        With ``autoplay=False`` the file stays paused once it is loaded
+        (at `seek_ms`, when given) - tag-based navigation uses this to
+        follow the playback state of the file shown before: a playing
+        video is followed by a playing one, a paused video by a paused
+        one."""
         self._ctrl_pressed = False
         self._zoom_start_ms = None
         self._zoom_end_ms = None
         self._pending_seek_ms = seek_ms
+        self._pending_pause = not autoplay
         self.clear_cut_marks()  # marks belong to the previous file
         self.player.setSource(QUrl.fromLocalFile(path))
         self.player.play()
@@ -376,13 +388,24 @@ class VideoViewer(QGraphicsView):
         # "Loading" state - durationChanged can even fire before that. The
         # position only reliably sticks once the media reaches
         # LoadedMedia, so that's when we apply any pending seek.
-        if status == QMediaPlayer.MediaStatus.LoadedMedia and self._pending_seek_ms is not None:
+        if status != QMediaPlayer.MediaStatus.LoadedMedia:
+            return
+        target = None
+        if self._pending_seek_ms is not None:
             duration = self.player.duration()
             target = self._pending_seek_ms
             if duration > 0:
                 target = max(0, min(target, duration))
             self.player.setPosition(int(target))
             self._pending_seek_ms = None
+        if self._pending_pause:
+            self._pending_pause = False
+            self.player.pause()
+            if target is not None:
+                # Re-apply the seek after pausing, so the still frame really
+                # is the requested moment and not whichever frame the
+                # decoder happened to be on when the pause was handled.
+                self.player.setPosition(int(target))
 
     def _refresh_window(self):
         duration = self.player.duration()

@@ -142,6 +142,15 @@ REMOVE_ICON = " ".join([
     f"QPushButton:hover {{ color: {COLOR_HOVER}; }}",
 ])
 
+# Compact, borderless icon-only button used in list rows (the magnifier and
+# trash of the "Manage tags" window). The icon itself carries the colour,
+# the stylesheet only provides the hover highlight.
+ICON_BUTTON = " ".join([
+    "QPushButton { background: transparent; border: none; padding: 2px; }",
+    f"QPushButton:hover {{ background-color: {COLOR_BORDER}; border-radius: 3px; }}",
+    "QPushButton:disabled { background: transparent; }",
+])
+
 # ---------------------------------------------------------------------------
 # Real (non-link) push buttons for primary/secondary dialog actions.
 # A widget-level stylesheet overrides the flat link look that styles.DIALOG

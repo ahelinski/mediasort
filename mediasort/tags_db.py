@@ -542,6 +542,30 @@ class TagsDatabase:
             "target_entries": target_entries,
         }
 
+    def delete_tag(self, name):
+        """Delete a tag and every one of its entries (whole-file and
+        timestamp alike).  Returns the number of entries that were
+        removed, or 0 when the tag is not in the database.
+
+        Used by the "Manage tags" window's trash button; the caller is
+        responsible for confirming with the user first."""
+        try:
+            name = self.normalize_tag(name)
+            tag_id = self._find_tag_id(name)
+            if tag_id is None:
+                return 0
+            removed = self.conn.execute(
+                "SELECT COUNT(*) AS n FROM tag_assignments WHERE tag_id = ?",
+                (tag_id,),
+            ).fetchone()["n"]
+            self.conn.execute("DELETE FROM tag_assignments WHERE tag_id = ?", (tag_id,))
+            self.conn.execute("DELETE FROM tags WHERE id = ?", (tag_id,))
+            self.conn.commit()
+        except Exception as e:
+            log_exception("delete_tag", e)
+            raise
+        return removed
+
     def export_csv(self, csv_path):
         """Write every assignment to `csv_path` as (tag, timestamp, path)
         rows - no internal ids.  A whole-file tag has an empty timestamp,

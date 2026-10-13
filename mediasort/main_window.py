@@ -11,7 +11,7 @@ from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
 from PySide6.QtMultimedia import QMediaPlayer
 
 from .config import Settings
-from .i18n import tr
+from .i18n import tr, tr_plural
 from . import styles
 from .key_utils import matches_any, matching_trigger
 from .file_scanner import scan_media, kind_for_path
@@ -26,6 +26,10 @@ from .tag_management_dialog import TagManagementDialog
 from .tag_browse_dialog import TagBrowseDialog
 from .manage_tags_dialog import ManageTagsDialog
 from .db_management_dialog import DbManagementDialog
+from .trash_dialog import (
+    TrashConfirmDialog, TRASH_CURRENT, TRASH_SELECTED, TRASH_UNSELECTED,
+)
+from .trash import move_to_trash
 
 
 def _format_ms(ms):
@@ -1491,6 +1495,12 @@ class MainWindow(QMainWindow):
             self._toggle_selection()
             return True
 
+        # Move to the system trash (current file, the selection, or the
+        # files outside the selection - see _open_trash_dialog).
+        if matches_any(event, nav_keys.get("trash_file", ["Delete"])):
+            self._open_trash_dialog()
+            return True
+
         # Toggle "show only selected files" filter mode.
         if matches_any(event, nav_keys.get("toggle_filter", ["F"])):
             self._toggle_filter()
@@ -1702,8 +1712,68 @@ class MainWindow(QMainWindow):
 
 
     # ------------------------------------------------------------------
-    # File operation dialog
     # ------------------------------------------------------------------
+    # Move to trash (Delete) - current file, selection, or its complement
+    # ------------------------------------------------------------------
+    @_pause_video_while_open
+    def _open_trash_dialog(self):
+        """Delete key: ask what should go to the system trash, then do it.
+
+        Without a selection the question is simply about the current file;
+        with one, the selection, the files outside it (inside the list
+        being browsed) or just the current file can be trashed."""
+        current = self.current_path()
+        if not current:
+            return
+        selected = [p for p, _kind in self.media_items if p in self.selected_paths]
+        unselected = [p for p, _kind in self.media_items if p not in self.selected_paths]
+
+        self._dialog_open = True
+        dialog = TrashConfirmDialog(
+            current_file=current,
+            selected_count=len(selected),
+            unselected_count=len(unselected),
+            parent=self,
+        )
+        self._active_dialog = dialog
+        dialog.exec()
+        self._dialog_open = False
+        self._active_dialog = None
+
+        choice = dialog.choice
+        dialog.deleteLater()
+        if choice is None:
+            self._update_selection_indicator()
+            return
+        if choice == TRASH_SELECTED:
+            paths = selected
+        elif choice == TRASH_UNSELECTED:
+            paths = unselected
+        else:
+            paths = [current]
+        self._trash_files(paths)
+
+    def _trash_files(self, paths):
+        """Move `paths` to the system trash; drop them from the file list
+        and report whichever ones could not be moved."""
+        paths = [path for path in paths if path]
+        if not paths:
+            return
+        trashed, failed = move_to_trash(paths)
+        if trashed:
+            self._remove_paths_and_advance(trashed)
+        if failed:
+            details = "\n".join(
+                f"{Path(path).name}: {error}" for path, error in failed[:10]
+            )
+            if len(failed) > 10:
+                details += "\n" + tr_plural("trash_dialog.more_failures", len(failed) - 10)
+            QMessageBox.warning(
+                self,
+                tr("trash_dialog.failed_title"),
+                tr_plural("trash_dialog.failed_message", len(failed), details=details),
+            )
+
     @_pause_video_while_open
     def _open_file_dialog(self, default_action):
         current = self.current_path()

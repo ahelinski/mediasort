@@ -349,6 +349,35 @@ the third action, "Open") has been moved into a separate Open/Browse dialog
 - The application remembers the most recently used list mode and restores it
   by default the next time the dialog opens (first launch = Relative mode).
 
+### Move to trash (`Delete`)
+- `Delete` asks what should go to the system **trash** (recycle bin):
+  - **nothing selected** — the question is about the current file, with the
+    answers "Yes" / "No";
+  - **something selected** — the dialog says how many files are selected and
+    offers four answers: **"Selected files"**, **"Unselected files"** (the
+    files outside the selection, i.e. inside the list being browsed - handy
+    for "keep what I marked, drop the rest"), **"Current file"** and
+    **"Cancel"**.
+- The main answer is the default one: Return accepts "Yes" (no selection)
+  or "Selected files" (with a selection) right away, while `Esc` - or
+  clicking "No"/"Cancel" - cancels without touching anything.
+- The files are moved to the operating system trash, so they stay
+  restorable from the desktop:
+  - **Windows** — the Recycle Bin (`SHFileOperationW` with `FOF_ALLOWUNDO`),
+  - **Linux/BSD** — the freedesktop.org trash (`~/.local/share/Trash` with
+    its `files/` + `info/` folders and a `.trashinfo` per item, or the
+    per-mount trash folder for files on another device); GLib's `gio trash`
+    is used when it is available,
+  - **macOS** — `~/.Trash`.
+  No extra Python package is needed for any of them.
+- Trashed files disappear from the list being browsed, the selection is
+  cleaned up and the next file is shown. If some of the files cannot be
+  moved (e.g. they were already gone), the rest is still trashed and a
+  warning lists the failures.
+- The tags of trashed files stay in the database (restoring a file from the
+  trash therefore keeps its tags); entries pointing at files that are gone
+  can be cleaned up with the "inaccessible files" check in `F10`.
+
 ### Open / Browse dialog
 
 A separate dialog (key `O`) for choosing **what to browse** — it replaces
@@ -613,6 +642,7 @@ a photo and back, even when the arrows are busy seeking.
     "show_move_dialog": ["M"],
     "show_browse_dialog": ["O"],
     "toggle_select": ["/"],
+    "trash_file": ["Delete"],
     "toggle_filter": ["F"],
     "show_tag_selected_dialog": ["Ctrl+T"],
     "show_manage_tags_dialog": ["T"],
@@ -701,6 +731,8 @@ MediaSort/
     ├── tag_browse_dialog.py        # browsing files by tag (Alt+T)
     ├── db_management_dialog.py     # database tools: compact, CSV (F10)
     ├── manage_tags_dialog.py       # Manage All Tags (F9): browse/delete/merge + Play-Pause
+    ├── trash_dialog.py             # "move to trash" confirmation (Delete key)
+    ├── trash.py                    # system trash: Recycle Bin (Windows) / freedesktop (Linux)
     ├── icons.py                    # small vector icons drawn with QPainter
     ├── i18n.py                     # UI translations (tr / tr_plural)
     ├── translations/               # translation files (en.json, pl.json)

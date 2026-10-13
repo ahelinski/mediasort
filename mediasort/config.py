@@ -37,6 +37,7 @@ DEFAULT_SETTINGS = {
         "show_move_dialog": ["M"],
         "show_browse_dialog": ["O"],
         "toggle_select": ["/", "MouseMiddle"],
+        "trash_file": ["Delete"],
         "toggle_filter": ["F"],
         "show_tag_selected_dialog": ["Ctrl+T"],
         "show_manage_tags_dialog": ["T"],

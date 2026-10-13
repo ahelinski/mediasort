@@ -8,14 +8,14 @@ distinct files, distinct tags) and offers four maintenance operations:
     without any assignments are dropped as well).  Paths that cannot be
     checked because access is denied are presented to the user, who may
     keep, delete, delete all remaining inaccessible entries, or abort.
-  * Manage tags - open the "Manage tags" window: browse every occurrence
-    of a tag, delete tags, merge/rename tags and control video playback;
-    see manage_tags_dialog.py.
   * Export to CSV - write every assignment as (tag, timestamp, path)
     rows without internal ids; a whole-file tag has an empty timestamp.
   * Import from CSV - append assignments from the same format, skipping
     rows that duplicate an existing assignment (same tag, same file, and
     the same timestamp when one is given).
+
+Tag maintenance lives in its own windows: "Manage All Tags" (F9, see
+manage_tags_dialog.py) and "Manage File Tags" (T).
 
 Errors from any of the operations are shown in a message box and their
 details (with the full stack trace) are appended to log.txt in the
@@ -30,20 +30,12 @@ from PySide6.QtGui import QKeyEvent
 
 from .i18n import tr
 from . import styles
-from .manage_tags_dialog import ManageTagsDialog
 
 
 class DbManagementDialog(QDialog):
-    def __init__(self, tags_db, parent=None, main_window=None):
+    def __init__(self, tags_db, parent=None):
         super().__init__(parent)
         self.tags_db = tags_db
-        # Main window, forwarded to the Manage-tags window so its magnifier
-        # and Play/Pause button can drive the displayed media.
-        self.main_window = main_window
-        # True once the Play/Pause button of the Manage-tags window was
-        # used - the caller then leaves the playback state as the user set
-        # it instead of restoring the state from opening the window.
-        self.playback_touched = False
 
         self.setWindowTitle(tr("db_manage.title"))
         self.resize(520, 360)
@@ -69,15 +61,12 @@ class DbManagementDialog(QDialog):
         ops_box = QGroupBox(tr("db_manage.operations_group"), self)
         ops_layout = QVBoxLayout(ops_box)
         self.compact_btn = QPushButton(tr("db_manage.compact_btn"), self)
-        self.manage_tags_btn = QPushButton(tr("db_manage.manage_tags_btn"), self)
         self.export_btn = QPushButton(tr("db_manage.export_btn"), self)
         self.import_btn = QPushButton(tr("db_manage.import_btn"), self)
         self.compact_btn.clicked.connect(self._compact)
-        self.manage_tags_btn.clicked.connect(self._manage_tags)
         self.export_btn.clicked.connect(self._export)
         self.import_btn.clicked.connect(self._import_csv)
         ops_layout.addWidget(self.compact_btn)
-        ops_layout.addWidget(self.manage_tags_btn)
         ops_layout.addWidget(self.export_btn)
         ops_layout.addWidget(self.import_btn)
         layout.addWidget(ops_box)
@@ -150,20 +139,6 @@ class DbManagementDialog(QDialog):
                 files=removed_files, entries=removed_entries, tags=removed_tags,
             ),
         )
-
-    def _manage_tags(self):
-        """Open the "Manage tags" window (browse/delete/merge/rename tags
-        and control playback) and refresh the statistics when the database
-        changed."""
-        dialog = ManageTagsDialog(
-            tags_db=self.tags_db, main_window=self.main_window, parent=self
-        )
-        dialog.exec()
-        if dialog.playback_touched:
-            self.playback_touched = True
-        if dialog.merged or dialog.deleted_any:
-            self._refresh_stats()
-        dialog.deleteLater()
 
     def _export(self):
         path, _selected_filter = QFileDialog.getSaveFileName(

@@ -265,6 +265,13 @@ class VideoViewer(QGraphicsView):
         self.clear_cut_marks()  # marks belong to the previous file
         self.player.setSource(QUrl.fromLocalFile(path))
         self.player.play()
+        if not autoplay:
+            # Pause right away: waiting until the media is loaded (see
+            # _on_media_status_changed) would keep it audibly playing while
+            # the file loads - and with a slow/buffering source that pause
+            # can even be missed entirely, so the "paused" file would start
+            # playing. _pending_pause still guards the loaded state below.
+            self.player.pause()
         self._refresh_window()
 
     def stop(self):
@@ -396,16 +403,16 @@ class VideoViewer(QGraphicsView):
             target = self._pending_seek_ms
             if duration > 0:
                 target = max(0, min(target, duration))
-            self.player.setPosition(int(target))
             self._pending_seek_ms = None
+        # A file loaded to stay paused must not start playing when the
+        # backend reports it ready (belt and braces on top of the immediate
+        # pause in load()).
         if self._pending_pause:
             self._pending_pause = False
             self.player.pause()
-            if target is not None:
-                # Re-apply the seek after pausing, so the still frame really
-                # is the requested moment and not whichever frame the
-                # decoder happened to be on when the pause was handled.
-                self.player.setPosition(int(target))
+        if target is not None:
+            # Seeking while paused also renders the frame at that moment.
+            self.player.setPosition(int(target))
 
     def _refresh_window(self):
         duration = self.player.duration()

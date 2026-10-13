@@ -40,6 +40,7 @@ DEFAULT_SETTINGS = {
         "toggle_filter": ["F"],
         "show_tag_selected_dialog": ["Ctrl+T"],
         "show_manage_tags_dialog": ["T"],
+        "show_manage_all_tags_dialog": ["F9"],
         "show_browse_tag_dialog": ["Alt+T"],
         "show_db_management_dialog": ["F10"]
     },

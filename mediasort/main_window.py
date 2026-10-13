@@ -24,6 +24,7 @@ from .tags_db import TagsDatabase
 from .tag_assign_dialog import TagAssignDialog
 from .tag_management_dialog import TagManagementDialog
 from .tag_browse_dialog import TagBrowseDialog
+from .manage_tags_dialog import ManageTagsDialog
 from .db_management_dialog import DbManagementDialog
 
 
@@ -350,6 +351,8 @@ class MainWindow(QMainWindow):
             self.current_index = self._find_index(initial_file)
         self._dialog_open = False
         self._active_dialog = None
+        # The standalone "Manage All Tags" window (F9), or None when closed.
+        self._manage_tags_window = None
 
         app = QApplication.instance()
         app.installEventFilter(self)
@@ -628,6 +631,7 @@ class MainWindow(QMainWindow):
         self.time_label.hide()
         self._clear_timestamp_tags()
         self._update_selection_indicator()
+        self._refresh_manage_tags_window()
 
     def _show_current(self):
         if self.tag_mode_active:
@@ -639,15 +643,15 @@ class MainWindow(QMainWindow):
         path, kind = self.media_items[self.current_index]
         self.video_viewer.stop()
         if kind == "image":
-            # No video state to carry over from an image - the next video
-            # shown by the Manage-tags magnifier starts playing.
-            self._video_play_intent = True
+            # A photo carries no playback state, so the Play/Pause mode is
+            # deliberately left untouched here - the next video still plays
+            # (or stays paused) exactly as the previous one did.
             self.image_viewer.load(path)
             self.stack.setCurrentWidget(self.image_viewer)
             self.time_label.hide()
             self._clear_timestamp_tags()
         else:
-            self.video_viewer.load(path)
+            self.video_viewer.load(path, autoplay=self._video_play_intent)
             self.stack.setCurrentWidget(self.video_viewer)
             self.time_label.show()
             self._update_timestamp_tags()
@@ -655,6 +659,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(tr("main_window.title_with_file", filename=os.path.basename(path)))
         self._update_file_info_label()
         self._update_selection_indicator()
+        self._refresh_manage_tags_window()
 
     def _show_tag_instance(self):
         if not self.tag_mode_instances:
@@ -706,9 +711,9 @@ class MainWindow(QMainWindow):
             self._update_time_label()
         else:
             self.video_viewer.stop()
-            # No video state to carry over from an image - the next video
-            # starts playing unless the user pauses it.
-            self._video_play_intent = True
+            # A photo carries no playback state, so the Play/Pause mode is
+            # left untouched - the next video still plays (or stays paused)
+            # exactly as the previous one did.
             self.image_viewer.load(path)
             self.stack.setCurrentWidget(self.image_viewer)
             self.time_label.hide()
@@ -721,6 +726,7 @@ class MainWindow(QMainWindow):
         ))
         self._update_file_info_label()
         self._update_selection_indicator()
+        self._refresh_manage_tags_window()
 
     def _update_file_info_label(self):
         """Set the top-left 'filename (x/total)' label. In filter mode,
@@ -883,12 +889,16 @@ class MainWindow(QMainWindow):
 
     def _on_playback_state_changed(self, state):
         """Keep _video_play_intent in sync with the real playback state, so
-        tag-based navigation can start the next file the same way the
-        current one is playing (or paused)."""
+        tag-based navigation and the file browser start the next video the
+        same way the current one is playing (or paused).
+
+        Only real play/pause transitions count: the "stopped" state that
+        switching to a photo (or reloading a file) produces must NOT reset
+        the mode - showing a photo leaves the Play/Pause state untouched,
+        so the next video still plays when it was playing before."""
         if state == QMediaPlayer.PlaybackState.PlayingState:
             self._video_play_intent = True
-        elif state in (QMediaPlayer.PlaybackState.PausedState,
-                       QMediaPlayer.PlaybackState.StoppedState):
+        elif state == QMediaPlayer.PlaybackState.PausedState:
             self._video_play_intent = False
 
     def _refresh_timestamp_tags_window(self, force=False):
@@ -1341,6 +1351,15 @@ class MainWindow(QMainWindow):
             return False
 
         if self._dialog_open:
+            # The open dialog owns the input. The standalone Manage All Tags
+            # window is non-modal and may not be the active window on every
+            # platform, so its Escape is routed here explicitly: Escape
+            # closes that window, never the application.
+            if (self._manage_tags_window is not None
+                    and isinstance(event, QKeyEvent)
+                    and event.key() == Qt.Key_Escape):
+                self._manage_tags_window.reject()
+                return True
             return False  # let the open dialog handle its own bindings
 
         kind = self.current_kind()
@@ -1448,6 +1467,9 @@ class MainWindow(QMainWindow):
             return True
         if matches_any(event, nav_keys.get("show_manage_tags_dialog", ["T"])):
             self._open_tag_management_dialog()
+            return True
+        if matches_any(event, nav_keys.get("show_manage_all_tags_dialog", ["F9"])):
+            self._toggle_manage_all_tags_window()
             return True
         if matches_any(event, nav_keys.get("show_browse_tag_dialog", ["Alt+T"])):
             self._open_tag_browse_dialog()
@@ -1642,8 +1664,19 @@ class MainWindow(QMainWindow):
         self._update_selection_indicator()
 
 
-    @_pause_video_while_open
     def _open_tag_management_dialog(self):
+        """Open the "Manage File Tags" window (T) for the current file.
+
+        A playing video is paused while the window is open, but the window's
+        Play/Pause button can start it again; when the user used that button
+        the playback state is left exactly as set, otherwise the state from
+        opening is restored.
+
+        The window is destroyed once it is closed - it listens to the
+        player's signals, so stray hidden copies would keep reacting to
+        every playback step and pile up."""
+        if self._dialog_open:
+            return  # never nest a second instance
         current = self.current_path()
         if not current:
             return
@@ -1652,6 +1685,9 @@ class MainWindow(QMainWindow):
             current_ts = self.video_viewer.player.position() // 1000
         else:
             current_ts = 0
+        was_playing = is_video and not self.video_viewer.is_paused()
+        if was_playing:
+            self.video_viewer.toggle_pause()
 
         self._dialog_open = True
         dialog = TagManagementDialog(
@@ -1664,8 +1700,67 @@ class MainWindow(QMainWindow):
         )
         dialog.exec()
         self._dialog_open = False
+        playback_touched = dialog.playback_touched
         if is_video:
+            if was_playing and not playback_touched and self.current_kind() == "video":
+                self.video_viewer.toggle_pause()
             self._update_timestamp_tags()
+        dialog.deleteLater()
+
+    # -- standalone "Manage All Tags" window (F9) -------------------------
+    def _refresh_manage_tags_window(self):
+        """Let the open Manage All Tags window update its Play/Pause button
+        after the displayed file changed."""
+        window = self._manage_tags_window
+        if window is not None:
+            window.refresh_playback()
+
+    def _toggle_manage_all_tags_window(self):
+        """F9: open the standalone Manage All Tags window, or bring it to
+        the front when it is already open."""
+        window = self._manage_tags_window
+        if window is not None and window.isVisible():
+            window.raise_()
+            window.activateWindow()
+            return
+        self._open_manage_all_tags_window()
+
+    def _open_manage_all_tags_window(self):
+        is_video = self.current_kind() == "video"
+        was_playing = is_video and not self.video_viewer.is_paused()
+        if was_playing:
+            self.video_viewer.toggle_pause()
+
+        window = ManageTagsDialog(tags_db=self.tags_db, main_window=self, parent=self)
+        window.setModal(False)
+        window.finished.connect(
+            lambda _result, playing=was_playing: self._on_manage_tags_window_closed(playing)
+        )
+        self._manage_tags_window = window
+        # While this window is open the main window must not run its global
+        # shortcuts: it is fullscreen and may keep the keyboard focus, so
+        # otherwise typing in the window would quit the application (Escape),
+        # select files ("/"), open dialogs ("M") or toggle playback (any
+        # click). Direct manipulation on the video (progress bar, timestamp
+        # chips) keeps working, exactly as with the other dialogs.
+        self._dialog_open = True
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        window.setFocus()
+
+    def _on_manage_tags_window_closed(self, was_playing):
+        """The standalone window was closed: leave playback as the user set
+        it with the Play/Pause button, or restore the state from opening."""
+        window = self._manage_tags_window
+        touched = window.playback_touched if window is not None else False
+        self._manage_tags_window = None
+        self._dialog_open = False
+        if was_playing and not touched and self.current_kind() == "video":
+            self.video_viewer.toggle_pause()
+        self._update_timestamp_tags()
+        if window is not None:
+            window.deleteLater()
 
     @_pause_video_while_open
     def _open_tag_browse_dialog(self):
@@ -1677,37 +1772,17 @@ class MainWindow(QMainWindow):
         if dialog.confirmed and dialog.selected_tag:
             self.enter_tag_browse_mode(dialog.selected_tag)
 
+    @_pause_video_while_open
     def _open_db_management_dialog(self):
-        """Open the database window (F10) and its "Manage tags" window.
-
-        A playing video is paused while the windows are open (so the
-        database work isn't done over running playback), but the Manage-tags
-        Play/Pause button can start it again; when the user did use that
-        button the playback state is left exactly as they set it, otherwise
-        the state from opening is restored."""
-        is_video = self.current_kind() == "video"
-        was_playing = is_video and not self.video_viewer.is_paused()
-        if was_playing:
-            self.video_viewer.toggle_pause()
-
+        """Open the database maintenance window (F10) - compacting, CSV
+        import/export. Tag maintenance lives in its own windows now
+        ("Manage All Tags" with F9, "Manage File Tags" with T)."""
         self._dialog_open = True
-        dialog = DbManagementDialog(
-            tags_db=self.tags_db, parent=self, main_window=self
-        )
+        dialog = DbManagementDialog(tags_db=self.tags_db, parent=self)
         self._active_dialog = dialog
         dialog.exec()
         self._dialog_open = False
         self._active_dialog = None
-
-        if is_video and was_playing and not dialog.playback_touched:
-            # Resume the video the window was opened over - but only while a
-            # video is really shown (a magnifier jump to a photo must not
-            # start the hidden player in the background).
-            if self.current_kind() == "video":
-                self.video_viewer.toggle_pause()
-        if is_video:
-            self._update_timestamp_tags()
-        dialog.deleteLater()
 
     def closeEvent(self, event):
         app = QApplication.instance()

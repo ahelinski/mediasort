@@ -60,3 +60,19 @@ def trash_icon(color=None):
         p.drawLine(10.2, 13.0, 11.0, 6.5)            # body (right)
 
     return _draw(draw, color or styles.COLOR_DANGER)
+
+
+def pencil_icon(color=None):
+    """A pencil (a diagonal body with a point in the lower-left corner)."""
+    def draw(p):
+        tip = (3.5, 13.5)          # writing point
+        body = (5.5, 11.5)         # where the point meets the body
+        end = (12.5, 4.5)          # eraser end
+        dx, dy = 1.0, 1.0          # half width, perpendicular to the body
+        p.drawLine(tip[0], tip[1], body[0] - dx, body[1] - dy)
+        p.drawLine(tip[0], tip[1], body[0] + dx, body[1] + dy)
+        p.drawLine(body[0] - dx, body[1] - dy, end[0] - dx, end[1] - dy)
+        p.drawLine(body[0] + dx, body[1] + dy, end[0] + dx, end[1] + dy)
+        p.drawLine(end[0] - dx, end[1] - dy, end[0] + dx, end[1] + dy)
+
+    return _draw(draw, color or styles.COLOR_TEXT)

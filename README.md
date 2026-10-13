@@ -438,20 +438,30 @@ error message).
   `Enter` (or the button) assigns the tag to the selected files or to the
   current file (depending on the context) — files already tagged with it are
   skipped without an error.
-- **`T` — tag management for the current file** — opens a window with a tag
+- **`T` — Manage File Tags** — opens a window with a tag
   text field, the list of recently used tags on the left (up/down arrows
   select, filling the text field) and the list of the current file's tags on
   the right (tags at video seconds shown as `{TAG}@{MM:SS}`). The text field
   has the same tag autocomplete as the assign dialog (suggestions after two
   typed characters, walked with `↓`/`↑`). The video is
-  automatically paused when this window opens and resumed when it closes.
+  automatically paused when this window opens and resumed when it closes
+  (unless the Play/Pause button below was used).
   - `Enter` / the "Tag file" button — assigns the tag to the whole file.
   - `Shift+Enter` / the "Timestamp tag" button (visible only for videos) —
     assigns the tag to the current playback second.
-  - Each tag on the current file's tag list has a "Remove" link next to it —
-    clicking it removes exactly that tag (if the tag is assigned to several
-    different seconds of the same video, only the chosen instance is
-    removed, leaving the others untouched).
+  - Each row ends with the same small icons as the "Manage All Tags" window:
+    - **magnifier** (timestamp tags only) — jumps to that moment;
+    - **pencil** — opens a small form to change that entry: the tag name
+      and, for a timestamp tag, the time (`mm:ss`). The entry is moved to
+      the new name/time on this file; if it collides with an existing entry
+      the two simply merge, and the old name disappears from this file;
+    - **trash** — removes exactly that entry from the file (if the tag is
+      assigned to several different seconds of the same video, only the
+      chosen instance is removed, leaving the others untouched).
+  - The row(s) of the tag currently shown at the playback position are
+    **highlighted** (the same interval the video overlay emphasizes), and
+    the highlight follows the playback while the window is open.
+  - **Play / Pause** at the bottom controls the video.
 - While a video plays, all tags assigned to a specific time are visible in
   the top-right corner, below the time information. Clicking a `{TAG}@{MM:SS}`
   tag moves playback to the assigned second.
@@ -476,52 +486,61 @@ error message).
     correctly choose the nearest next/previous mark relative to the actual
     position, rather than rigidly following the list order.
 
+### Manage All Tags (`F9`)
+
+The standalone tag-management window. It opens with `F9` (pressing `F9`
+again brings it to the front; `Esc` or the "Close" button closes it) and can
+stay open while you browse, so the magnifier and the arrow keys can walk
+through the tags. Every tag is listed with its number of entries, and each
+row offers:
+
+- **the magnifier** — shows the next occurrence of the tag without closing
+  the window. It walks through every file carrying the tag and every
+  timestamp in it, starting from where you are: the current file first (on
+  the current file the *first* timestamp is used, unless the playback
+  already sits exactly on one of the tag's timestamps, in which case the
+  *next* one is used), then the rest of the current folder (wrapping around
+  at its end), and only then the files from other folders; after the last
+  one the tour wraps around to the start. A file is entered at its *first*
+  timestamp — a timestamp wins over a plain whole-file tag on the same file,
+  and a file carrying only the whole-file tag is simply opened. The
+  application switches to tag-browse mode, so `→`/`←` keep walking the same
+  sequence afterwards.
+- **the trash** — deletes the tag and **all** of its entries from the
+  database, after a confirmation. If that tag was being browsed or was
+  shown in the timestamp overlay, the display is refreshed.
+- **clicking the tag name** — adds it to the *source tags* selection of the
+  merge/rename action below (the `×` on the right-hand list removes it).
+- **Merge / Rename** — the chosen source tags are listed on the right (each
+  with its number of entries and an `×`), the target tag is typed in (an
+  existing tag via autocomplete, or a brand-new name), and after a
+  confirmation — worded as a *rename* for one source tag and as a *merge*
+  for several — every entry of the source tags is moved to the target tag
+  and the source tags are deleted:
+  - whole-file tags become whole-file tags of the target;
+  - timestamp tags keep their timestamp (the video second);
+  - when the target already has the exact same entry (the same file, and
+    for a timestamp tag the same second), the redundant source entry is
+    simply deleted;
+  - with a single source tag this is exactly a **rename**.
+- **Play / Pause** starts or stops the video shown behind the window
+  (disabled while a photo is displayed). Opening the window pauses a playing
+  video; when you used the Play/Pause button the playback state is left
+  exactly as you set it, otherwise the state from opening is restored on
+  close. The Play/Pause state is remembered across file changes: a paused
+  video is followed by a paused one, a playing video by a playing one, and
+  showing a photo does not touch the state at all (the next video still
+  plays when it was playing before).
+
 ### Database management (`F10`)
 
 The database window shows the number of entries, files and tags, and offers
-four maintenance operations:
+three maintenance operations:
 
 - **Compact database** — removes entries whose file no longer exists on
   disk (and tags left without any entries). Paths that cannot be checked
   (no access) are shown one by one: you can keep them, delete them, delete
   all remaining inaccessible ones, or abort.
-- **Manage tags** — the tag-management window. Every tag is listed with its
-  number of entries, and each row offers:
-  - **the magnifier** — shows the next occurrence of the tag without
-    closing the window. It walks through every file carrying the tag and
-    every timestamp in it, starting from where you are: the current file
-    first (on the current file the *first* timestamp is used, unless the
-    playback already sits exactly on one of the tag's timestamps, in which
-    case the *next* one is used), then the rest of the current folder
-    (wrapping around at its end), and only then the files from other
-    folders; after the last one the tour wraps around to the start. A file
-    is entered at its *first* timestamp — a timestamp wins over a plain
-    whole-file tag on the same file, and a file carrying only the
-    whole-file tag is simply opened. The application switches to
-    tag-browse mode, so `→`/`←` keep walking the same sequence afterwards.
-  - **the trash** — deletes the tag and **all** of its entries from the
-    database, after a confirmation. If that tag was being browsed or was
-    shown in the timestamp overlay, the display is refreshed.
-  - **clicking the tag name** — adds it to the *source tags* selection of
-    the merge/rename action below (the `×` on the right-hand list removes
-    it).
-  - **Merge / Rename** works as before: the chosen source tags are listed
-    on the right (each with its number of entries and an `×`), the target
-    tag is typed in (an existing tag via autocomplete, or a brand-new
-    name), and after a confirmation — worded as a *rename* for one source
-    tag and as a *merge* for several — every entry of the source tags is
-    moved to the target tag and the source tags are deleted:
-    - whole-file tags become whole-file tags of the target;
-    - timestamp tags keep their timestamp (the video second);
-    - when the target already has the exact same entry (the same file, and
-      for a timestamp tag the same second), the redundant source entry is
-      simply deleted;
-    - with a single source tag this is exactly a **rename**.
-  - **Play / Pause** starts or stops the video shown behind the window
-    (disabled while a photo is displayed). Opening the `F10` window pauses
-    a playing video; when you used the Play/Pause button the playback state
-    is left exactly as you set it, otherwise the state from opening is
-    restored on close.
 - **Export to CSV** — writes every entry as a `tag,timestamp,path` row
   (a whole-file tag has an empty timestamp).
 - **Import from CSV** — reads the same format and appends the rows,
@@ -574,7 +593,9 @@ a photo and back, even when the arrows are busy seeking.
     "toggle_filter": ["F"],
     "show_tag_selected_dialog": ["Ctrl+T"],
     "show_manage_tags_dialog": ["T"],
-    "show_browse_tag_dialog": ["Alt+T"]
+    "show_manage_all_tags_dialog": ["F9"],
+    "show_browse_tag_dialog": ["Alt+T"],
+    "show_db_management_dialog": ["F10"]
   },
   "video_keys": {
     "seek_forward": ["Right"],
@@ -653,10 +674,10 @@ MediaSort/
     ├── tags_db.py                  # local tag database (SQLite)
     ├── tag_assign_dialog.py        # tag assignment dialog (Ctrl+T)
     ├── tag_suggestions.py          # tag autocomplete popup for the tagging dialogs
-    ├── tag_management_dialog.py    # tag management for the current file (T)
+    ├── tag_management_dialog.py    # Manage File Tags (T): rows with icons, edit form
     ├── tag_browse_dialog.py        # browsing files by tag (Alt+T)
-    ├── db_management_dialog.py     # database tools: compact, manage tags, CSV (F10)
-    ├── manage_tags_dialog.py       # browse / delete / merge / rename tags + Play-Pause
+    ├── db_management_dialog.py     # database tools: compact, CSV (F10)
+    ├── manage_tags_dialog.py       # Manage All Tags (F9): browse/delete/merge + Play-Pause
     ├── icons.py                    # small vector icons drawn with QPainter
     ├── i18n.py                     # UI translations (tr / tr_plural)
     ├── translations/               # translation files (en.json, pl.json)

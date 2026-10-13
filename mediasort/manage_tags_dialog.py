@@ -225,7 +225,7 @@ class ManageTagsDialog(QDialog):
             row_layout.setContentsMargins(6, 1, 2, 1)
 
             label = _ClickableLabel(self._entry_label(name, count), row)
-            label.setStyleSheet(styles.DIALOG)
+            label.setStyleSheet(styles.FILE_TAG_ROW)
             label.setCursor(Qt.PointingHandCursor)
             label.setToolTip(tr("manage_tags.add_tooltip"))
             label.clicked.connect(lambda n=name: self._select_and_add(n))
@@ -316,7 +316,7 @@ class ManageTagsDialog(QDialog):
             row_layout.setContentsMargins(6, 2, 6, 2)
 
             label = QLabel(self._entry_label(name, self._counts.get(name, 0)), row)
-            label.setStyleSheet(styles.DIALOG)
+            label.setStyleSheet(styles.FILE_TAG_ROW)
             row_layout.addWidget(label)
             row_layout.addStretch(1)
 
@@ -422,6 +422,12 @@ class ManageTagsDialog(QDialog):
             return
         self.playback_touched = True
         self.main_window.video_viewer.toggle_pause()
+        self._refresh_play_btn()
+
+    def refresh_playback(self):
+        """Public hook: the main window calls this when the displayed file
+        changed, so the Play/Pause button follows the new item (enabled for
+        a video, disabled for a photo)."""
         self._refresh_play_btn()
 
     def _refresh_play_btn(self, *_args):

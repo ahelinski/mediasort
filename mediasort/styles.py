@@ -231,6 +231,16 @@ TS_MORE = (
     "padding: 0px 8px; border-radius: 3px;"
 )
 
+# Row label of a tag list in the tag windows. These are deliberately tiny
+# stylesheets (not the whole DIALOG sheet): the active one is re-applied on
+# every playback step, and a heavy sheet on a child widget forces Qt to
+# re-polish the style tree each time.
+FILE_TAG_ROW = f"color: {COLOR_TEXT};"
+
+# Row label of the tag(s) currently shown at the playback position in the
+# "Manage File Tags" window - mirrors the emphasized chip over the video.
+FILE_TAG_ACTIVE = f"color: {COLOR_HOVER}; font-weight: bold;"
+
 # "[x]" selected-file indicator shown in the top-right corner.
 SELECTION = (
     f"color: {COLOR_SELECTION}; background-color: {COLOR_BG_TRANSLUCENT}; "

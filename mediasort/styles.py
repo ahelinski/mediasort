@@ -21,6 +21,10 @@ style. RGB-component variables (``*_RGB``) exist for painting code
 # ---------------------------------------------------------------------------
 # Base dark-blue background - used for every background, no variations.
 COLOR_BG = "#010b13"
+# Slightly lighter surface for small numeric inputs (the Browse dialog's
+# tag score field), so the field is actually visible on the dialog
+# background instead of blending into it.
+COLOR_INPUT_BG = "#0b1e2d"
 # Translucent variant of COLOR_BG for overlays drawn on top of media
 # (file info, time label, timestamp chips, selection indicator).
 COLOR_BG_TRANSLUCENT = "rgba(4, 28, 50, 200)"
@@ -98,7 +102,8 @@ DIALOG = " ".join([
     f"QLabel:disabled, QCheckBox:disabled, QRadioButton:disabled, "
     f"QGroupBox:disabled, QPushButton:disabled {{ color: {COLOR_TEXT_DISABLED}; }}",
     f"QGroupBox:disabled {{ border-color: {COLOR_BORDER_DISABLED}; }}",
-    f"QLineEdit:disabled, QListWidget:disabled {{ color: {COLOR_TEXT_DISABLED}; "
+    f"QLineEdit:disabled, QListWidget:disabled, QSpinBox:disabled "
+    f"{{ color: {COLOR_TEXT_DISABLED}; "
     f"border-color: {COLOR_BORDER_DISABLED}; }}",
     f"QCheckBox::indicator:disabled {{ border-color: {COLOR_BORDER_DISABLED}; }}",
     # A list inside a group box (e.g. the Browse dialog's folder list)
@@ -109,9 +114,17 @@ DIALOG = " ".join([
     f"QLineEdit {{ background-color: {COLOR_BG}; color: {COLOR_TEXT}; "
     f"border: 1px solid {COLOR_BORDER}; border-radius: 3px; padding: 2px 4px; "
     f"selection-background-color: {COLOR_BORDER}; selection-color: {COLOR_TEXT}; }}",
+    # Numeric input (the Browse dialog's tag score field): a slightly
+    # lighter surface than the dialog, so the field is clearly visible.
+    f"QSpinBox {{ background-color: {COLOR_INPUT_BG}; color: {COLOR_TEXT}; "
+    f"border: 1px solid {COLOR_BORDER}; border-radius: 3px; padding: 1px 2px; "
+    f"selection-background-color: {COLOR_BORDER}; selection-color: {COLOR_TEXT}; }}",
+    f"QSpinBox:focus {{ border-color: {COLOR_BORDER_ACTIVE}; }}",
+    f"QSpinBox:disabled {{ color: {COLOR_TEXT_DISABLED}; "
+    f"background-color: {COLOR_BG}; border-color: {COLOR_BORDER_DISABLED}; }}",
     f"QListWidget {{ background-color: {COLOR_BG}; color: {COLOR_TEXT}; "
     f"border: 1px solid {COLOR_BORDER}; border-radius: 3px; }}",
-    f"QLineEdit:focus, QListWidget:focus {{ border-color: {COLOR_BORDER_ACTIVE}; }}",
+    f"QLineEdit:focus, QListWidget:focus, QSpinBox:focus {{ border-color: {COLOR_BORDER_ACTIVE}; }}",
     f"QListWidget::item:selected {{ background-color: {COLOR_BORDER}; }}",
     f"QPushButton {{ color: {COLOR_TEXT}; text-decoration: underline; "
     "border: none; background: transparent; padding: 0; }",
@@ -205,13 +218,14 @@ SELECTION_PREVIEW = (
 THUMB = f"background-color: {COLOR_BG}; border: 1px solid {COLOR_BORDER};"
 
 
-def _ts_link_style(bold=False):
+def _ts_link_style(bold=False, color=None):
     """Timestamp-tag seek chip overlaid on the video; ``bold`` marks the
     interval containing the playback position.  Plain dark background, no
     border - the translucent chip alone stands out on video."""
     weight = "font-weight: bold; " if bold else ""
+    text_color = color or COLOR_TEXT
     return " ".join([
-        f"QPushButton {{ color: {COLOR_TEXT}; background-color: {COLOR_BG_TRANSLUCENT}; "
+        f"QPushButton {{ color: {text_color}; background-color: {COLOR_BG_TRANSLUCENT}; "
         f"font-size: {FONT_SIZE_SMALL}px; {weight}padding: 2px 8px; "
         f"border-radius: 3px; }}",
         f"QPushButton:hover {{ background-color: {COLOR_ACCENT_TRANSLUCENT}; }}",
@@ -222,6 +236,19 @@ def _ts_link_style(bold=False):
 TS_LINK = _ts_link_style()
 # Timestamp-tag seek chip (active interval).
 ACTIVE_TS_LINK = _ts_link_style(bold=True)
+# Timestamp-tag chip whose tag score is below the Browse dialog's
+# "Filter by tag score" threshold - dimmed and skipped by next/previous.
+TS_LINK_DIM = _ts_link_style(color=COLOR_TEXT_DISABLED)
+
+# Small "+"/"-" score buttons next to a tag (video overlay and the
+# "Manage File Tags" window). Look like a smaller timestamp chip.
+SCORE_BUTTON = " ".join([
+    f"QPushButton {{ color: {COLOR_TEXT}; background-color: {COLOR_BG_TRANSLUCENT}; "
+    f"font-size: {FONT_SIZE_SMALL}px; font-weight: bold; padding: 0px 6px; "
+    "border-radius: 3px; }",
+    f"QPushButton:hover {{ background-color: {COLOR_ACCENT_TRANSLUCENT}; }}",
+    f"QPushButton:disabled {{ color: {COLOR_TEXT_DISABLED}; }}",
+])
 
 # Small "+" marker shown above/below the timestamp-tag stack when tags
 # exist that are hidden (don't fit in the visible window).

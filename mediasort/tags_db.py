@@ -10,7 +10,7 @@ Schema:
       last_assigned_at drives the "recently assigned tags" list used by
       the assign-tag dialog; last_viewed_at drives the "recently viewed
       tags" list used by the browse-by-tag dialog.
-  tag_assignments(id, tag_id, file_path, timestamp_sec, created_at)
+  tag_assignments(id, tag_id, file_path, timestamp_sec, created_at, score)
       timestamp_sec is WHOLE_FILE_MARKER (-1) for a whole-file tag, or a
       non-negative integer second for a video-timestamp tag. Note: NULL
       can't be used for this because SQL UNIQUE constraints treat every
@@ -19,6 +19,10 @@ Schema:
       The UNIQUE constraint on (tag_id, file_path, timestamp_sec) is what
       makes assigning the same tag twice a silent no-op instead of an
       error.
+      score is the entry's rating (default 0); one score belongs to one
+      entry, i.e. to a tag on one file - or, for a timestamp tag, to one
+      second of that file. It powers the "+"/"-" buttons of the tag
+      windows and the Browse dialog's sort/filter by tag score.
 """
 import csv
 import errno
@@ -84,13 +88,27 @@ class TagsDatabase:
                 file_path TEXT NOT NULL,
                 timestamp_sec INTEGER NOT NULL DEFAULT -1,
                 created_at REAL DEFAULT 0,
+                score INTEGER NOT NULL DEFAULT 0,
                 UNIQUE(tag_id, file_path, timestamp_sec)
             );
             CREATE INDEX IF NOT EXISTS idx_assignments_file ON tag_assignments(file_path);
             CREATE INDEX IF NOT EXISTS idx_assignments_tag ON tag_assignments(tag_id);
             """
         )
+        self._migrate_schema()
         self.conn.commit()
+
+    def _migrate_schema(self):
+        """Add columns introduced after the first release to an existing
+        database file (CREATE TABLE IF NOT EXISTS never alters it)."""
+        columns = {
+            row["name"]
+            for row in self.conn.execute("PRAGMA table_info(tag_assignments)")
+        }
+        if "score" not in columns:
+            self.conn.execute(
+                "ALTER TABLE tag_assignments ADD COLUMN score INTEGER NOT NULL DEFAULT 0"
+            )
 
     # -- helpers ----------------------------------------------------------
     @staticmethod
@@ -121,11 +139,12 @@ class TagsDatabase:
         return cur.lastrowid
 
     # -- assignment ---------------------------------------------------------
-    def assign_tag(self, name, file_path, timestamp_sec=None):
+    def assign_tag(self, name, file_path, timestamp_sec=None, score=0):
         """Assign `name` to `file_path` (whole file if timestamp_sec is
         None, otherwise that second of a video). Returns True if a new
         assignment was created, False if it already existed (silent, not
-        an error) or the tag name was empty."""
+        an error) or the tag name was empty. ``score`` is the initial score
+        of the entry (used by the CSV import)."""
         name = self.normalize_tag(name)
         if not name:
             return False
@@ -134,15 +153,60 @@ class TagsDatabase:
         db_ts = self._to_db_timestamp(timestamp_sec)
         try:
             self.conn.execute(
-                "INSERT INTO tag_assignments(tag_id, file_path, timestamp_sec, created_at) "
-                "VALUES (?, ?, ?, ?)",
-                (tag_id, str(file_path), db_ts, now),
+                "INSERT INTO tag_assignments(tag_id, file_path, timestamp_sec, created_at, score) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (tag_id, str(file_path), db_ts, now, int(score)),
             )
         except sqlite3.IntegrityError:
             return False
         self.conn.execute("UPDATE tags SET last_assigned_at = ? WHERE id = ?", (now, tag_id))
         self.conn.commit()
         return True
+
+    # -- scores -----------------------------------------------------------
+    def score_for(self, name, file_path, timestamp_sec=None):
+        """Return the score of one entry (0 when it does not exist)."""
+        tag_id = self._find_tag_id(self.normalize_tag(name))
+        if tag_id is None:
+            return 0
+        row = self.conn.execute(
+            "SELECT score FROM tag_assignments "
+            "WHERE tag_id = ? AND file_path = ? AND timestamp_sec = ?",
+            (tag_id, str(file_path), self._to_db_timestamp(timestamp_sec)),
+        ).fetchone()
+        return int(row["score"]) if row else 0
+
+    def change_score(self, name, file_path, timestamp_sec, delta):
+        """Add ``delta`` to one entry's score and return the new score.
+
+        Returns None when there is no such entry (the "+"/"-" buttons only
+        exist for entries that do)."""
+        tag_id = self._find_tag_id(self.normalize_tag(name))
+        if tag_id is None:
+            return None
+        cursor = self.conn.execute(
+            "UPDATE tag_assignments SET score = score + ? "
+            "WHERE tag_id = ? AND file_path = ? AND timestamp_sec = ?",
+            (int(delta), tag_id, str(file_path), self._to_db_timestamp(timestamp_sec)),
+        )
+        if cursor.rowcount == 0:
+            return None
+        self.conn.commit()
+        return self.score_for(name, file_path, timestamp_sec)
+
+    def max_tag_scores(self, name):
+        """Return ``{file_path: highest_score}`` for one tag, over both its
+        whole-file and its timestamp entries - used by the Browse dialog's
+        "sort/filter by tag score" options."""
+        tag_id = self._find_tag_id(self.normalize_tag(name))
+        if tag_id is None:
+            return {}
+        cursor = self.conn.execute(
+            "SELECT file_path, MAX(score) AS score FROM tag_assignments "
+            "WHERE tag_id = ? GROUP BY file_path",
+            (tag_id,),
+        )
+        return {row["file_path"]: int(row["score"]) for row in cursor.fetchall()}
 
     def remove_tag(self, name, file_path, timestamp_sec=None):
         name = self.normalize_tag(name)
@@ -161,19 +225,27 @@ class TagsDatabase:
             self.remove_tag(tag, file)
 
     # -- queries ----------------------------------------------------------
-    def file_tags(self, file_path):
-        """Return [(tag_name, timestamp_sec_or_None), ...] for a file,
-        oldest assignment first."""
+    def file_tags_scored(self, file_path):
+        """Return ``[(tag_name, timestamp_sec_or_None, score), ...]`` for a
+        file, oldest assignment first (same order as file_tags)."""
         cur = self.conn.execute(
             """
-            SELECT t.name AS name, a.timestamp_sec AS ts
+            SELECT t.name AS name, a.timestamp_sec AS ts, a.score AS score
             FROM tag_assignments a JOIN tags t ON t.id = a.tag_id
             WHERE a.file_path = ?
             ORDER BY a.created_at ASC
             """,
             (str(file_path),),
         )
-        return [(r["name"], self._from_db_timestamp(r["ts"])) for r in cur.fetchall()]
+        return [
+            (r["name"], self._from_db_timestamp(r["ts"]), int(r["score"]))
+            for r in cur.fetchall()
+        ]
+
+    def file_tags(self, file_path):
+        """Return [(tag_name, timestamp_sec_or_None), ...] for a file,
+        oldest assignment first."""
+        return [(name, ts) for name, ts, _score in self.file_tags_scored(file_path)]
 
     def file_has_tag(self, name, file_path):
         """True if `file_path` has `name` assigned at the whole-file level
@@ -244,24 +316,35 @@ class TagsDatabase:
         self.conn.execute("UPDATE tags SET last_viewed_at = ? WHERE id = ?", (time.time(), tag_id))
         self.conn.commit()
 
+    def instances_for_tag_scored(self, name):
+        """Return ``[(file_path, timestamp_sec_or_None, score), ...]`` for
+        every instance of a tag (one row per whole-file or per-timestamp
+        assignment), ordered like instances_for_tag."""
+        tag_id = self._find_tag_id(self.normalize_tag(name))
+        if tag_id is None:
+            return []
+        cur = self.conn.execute(
+            """
+            SELECT file_path, timestamp_sec, score FROM tag_assignments
+            WHERE tag_id = ?
+            ORDER BY file_path ASC, timestamp_sec ASC
+            """,
+            (tag_id,),
+        )
+        return [
+            (r["file_path"], self._from_db_timestamp(r["timestamp_sec"]), int(r["score"]))
+            for r in cur.fetchall()
+        ]
+
     def instances_for_tag(self, name):
         """Return [(file_path, timestamp_sec_or_None), ...] for every
         instance of a tag (one row per whole-file or per-timestamp
         assignment), ordered by file path then timestamp so that a
         file-level tag on a video is visited right before its own
         timestamp tags."""
-        tag_id = self._find_tag_id(self.normalize_tag(name))
-        if tag_id is None:
-            return []
-        cur = self.conn.execute(
-            """
-            SELECT file_path, timestamp_sec FROM tag_assignments
-            WHERE tag_id = ?
-            ORDER BY file_path ASC, timestamp_sec ASC
-            """,
-            (tag_id,),
-        )
-        return [(r["file_path"], self._from_db_timestamp(r["timestamp_sec"])) for r in cur.fetchall()]
+        return [
+            (path, ts) for path, ts, _score in self.instances_for_tag_scored(name)
+        ]
 
     @property
     def __class__(self) -> type[Self]:
@@ -567,36 +650,38 @@ class TagsDatabase:
         return removed
 
     def export_csv(self, csv_path):
-        """Write every assignment to `csv_path` as (tag, timestamp, path)
-        rows - no internal ids.  A whole-file tag has an empty timestamp,
-        a video-timestamp tag has the integer second.  Returns the number
-        of exported rows."""
+        """Write every assignment to `csv_path` as (tag, timestamp, path,
+        score) rows - no internal ids.  A whole-file tag has an empty
+        timestamp, the score is the entry's rating.  Returns the number of
+        exported rows."""
         try:
             rows = self.conn.execute(
                 """
-                SELECT t.name AS name, a.timestamp_sec AS ts, a.file_path AS path
+                SELECT t.name AS name, a.timestamp_sec AS ts, a.file_path AS path,
+                       a.score AS score
                 FROM tag_assignments a JOIN tags t ON t.id = a.tag_id
                 ORDER BY t.name COLLATE NOCASE ASC, a.file_path ASC, a.timestamp_sec ASC
                 """
             ).fetchall()
             with open(csv_path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
-                writer.writerow(["tag", "timestamp", "path"])
+                writer.writerow(["tag", "timestamp", "path", "score"])
                 for r in rows:
                     ts = "" if r["ts"] == WHOLE_FILE_MARKER else str(r["ts"])
-                    writer.writerow([r["name"], ts, r["path"]])
+                    writer.writerow([r["name"], ts, r["path"], r["score"]])
             return len(rows)
         except Exception as e:
             log_exception("export_csv", e)
             raise
 
     def import_csv(self, csv_path):
-        """Append assignments from `csv_path`, expecting the same
-        (tag, timestamp, path) columns as :meth:`export_csv` (a header row
-        is skipped).  Rows that duplicate an existing assignment - same
-        tag, same file, and the same timestamp when one is given - are
-        silently skipped instead of creating a duplicate.  Returns
-        (added, skipped)."""
+        """Append assignments from `csv_path`, expecting the same columns as
+        :meth:`export_csv` (a header row is skipped).  The ``score`` column
+        is optional - files exported before scores existed only have three
+        columns and import with score 0.  Rows that duplicate an existing
+        assignment - same tag, same file, and the same timestamp when one is
+        given - are silently skipped instead of creating a duplicate.
+        Returns (added, skipped)."""
         try:
             with open(csv_path, newline="", encoding="utf-8-sig") as f:
                 rows = list(csv.reader(f))
@@ -621,7 +706,14 @@ class TagsDatabase:
                     except ValueError:
                         skipped += 1
                         continue
-                if self.assign_tag(tag, file_path, timestamp_sec):
+                score = 0
+                if len(row) >= 4 and row[3].strip():
+                    try:
+                        score = int(row[3])
+                    except ValueError:
+                        skipped += 1
+                        continue
+                if self.assign_tag(tag, file_path, timestamp_sec, score=score):
                     added += 1
                 else:
                     skipped += 1

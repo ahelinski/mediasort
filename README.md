@@ -379,6 +379,21 @@ each other:
    "File tags", `T`) still show all tags, without filtering. The filter
    stays active until the Open/Browse dialog is confirmed again (or another
    folder is opened).
+   - Below it there is the **"Tag score filter:"** checkbox with a small
+     number field (default 1) in the same row. It is available at all times
+     and works on two levels:
+     - **without "Browse tag"** — the files are listed normally (folder
+       browsing), and the value is only remembered as the minimum score for
+       the video: tags scored below it are **dimmed** on the video overlay
+       and **skipped** by the `E`/`Q` navigation and by the tag-browse
+       (`Alt+T`) stepping;
+     - **with "Browse tag"** — in addition, files whose matching selected
+       tags are *all* scored below the value are dropped from the results;
+     - while browsing by tag the results are **always ordered by the tag
+       score** (the file whose selected tag scored best comes first; equal
+       scores keep the previous order) — there is no separate switch for it.
+     - The option is session-scoped, like all other Browse dialog settings —
+       restarting the application resets it.
 
 You must choose a **folder OR a tag** (both are allowed) — if both fields
 are empty, the "Open" button shows an error. Combining rules:
@@ -450,6 +465,10 @@ error message).
   - `Shift+Enter` / the "Timestamp tag" button (visible only for videos) —
     assigns the tag to the current playback second.
   - Each row ends with the same small icons as the "Manage All Tags" window:
+    - **`−` / `+`** — lower/raise the **score** of that entry by one. A score
+      belongs to one entry (a tag on one file, or a tag at one second of a
+      video) and defaults to 0; it is shown next to the tag name in
+      parentheses once it differs from 0, e.g. `Tag(2)@00:30`;
     - **magnifier** (timestamp tags only) — jumps to that moment;
     - **pencil** — opens a small form to change that entry: the tag name
       and, for a timestamp tag, the time (`mm:ss`). The entry is moved to
@@ -464,7 +483,10 @@ error message).
   - **Play / Pause** at the bottom controls the video.
 - While a video plays, all tags assigned to a specific time are visible in
   the top-right corner, below the time information. Clicking a `{TAG}@{MM:SS}`
-  tag moves playback to the assigned second.
+  tag moves playback to the assigned second. Each chip is a row with its own
+  **`−` / `+`** score buttons (`Tag(2)@00:30`); a chip whose score is below
+  the minimum set in the Open/Browse dialog is dimmed and skipped by the
+  `E`/`Q` navigation.
   - `Esc` / the "Close" button — closes the window.
 - **`Alt+T` — browse by tag** — opens a dialog with the list of **recently
   browsed tags** (separate from the Open/Browse dialog — this one shows each
@@ -541,10 +563,11 @@ three maintenance operations:
   disk (and tags left without any entries). Paths that cannot be checked
   (no access) are shown one by one: you can keep them, delete them, delete
   all remaining inaccessible ones, or abort.
-- **Export to CSV** — writes every entry as a `tag,timestamp,path` row
+- **Export to CSV** — writes every entry as a `tag,timestamp,path,score` row
   (a whole-file tag has an empty timestamp).
 - **Import from CSV** — reads the same format and appends the rows,
-  skipping those duplicating an existing entry.
+  skipping those duplicating an existing entry. Files exported before
+  scores existed (three columns) import fine — their entries get score 0.
 
 ## Configuring keyboard shortcuts
 

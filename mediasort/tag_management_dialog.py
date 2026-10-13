@@ -38,6 +38,11 @@ def _format_ts(seconds):
     return f"{m:02d}:{s:02d}"
 
 
+def _score_suffix(score):
+    """"(2)" when a tag has a score, "" while it is still 0."""
+    return f"({score})" if score else ""
+
+
 class _TagEditDialog(QDialog):
     """Small form editing one tag entry of the current file.
 
@@ -274,7 +279,7 @@ class TagManagementDialog(QDialog):
     def _reload_file_tags(self):
         self.file_tags_list.clear()
         self._file_tag_rows = []
-        tags = self.tags_db.file_tags(self.current_file)
+        tags = self.tags_db.file_tags_scored(self.current_file)
         # Whole-file tags (no timestamp) first, alphabetically; then
         # timestamp tags from the smallest to the largest timestamp, and
         # alphabetically within the same timestamp.
@@ -283,8 +288,10 @@ class TagManagementDialog(QDialog):
             t[1] if t[1] is not None else 0,   # timestamp ascending
             t[0].lower(),                      # alphabetical (case-insensitive)
         ))
-        for name, ts in tags:
-            text = name if ts is None else f"{name}@{_format_ts(ts)}"
+        for name, ts, score in tags:
+            text = f"{name}{_score_suffix(score)}"
+            if ts is not None:
+                text += f"@{_format_ts(ts)}"
 
             row_widget = QWidget(self.file_tags_list)
             row_layout = QHBoxLayout(row_widget)
@@ -294,6 +301,18 @@ class TagManagementDialog(QDialog):
             label.setStyleSheet(styles.FILE_TAG_ROW)
             row_layout.addWidget(label)
             row_layout.addStretch(1)
+
+            # Score: one press of "-" or "+" changes it by one.
+            down_btn = self._score_button("\u2212", tr("tag_manage.score_down_tooltip"), row_widget)
+            down_btn.clicked.connect(
+                lambda _checked=False, n=name, t=ts: self._change_score(n, t, -1)
+            )
+            row_layout.addWidget(down_btn)
+            up_btn = self._score_button("+", tr("tag_manage.score_up_tooltip"), row_widget)
+            up_btn.clicked.connect(
+                lambda _checked=False, n=name, t=ts: self._change_score(n, t, +1)
+            )
+            row_layout.addWidget(up_btn)
 
             if ts is not None:
                 # Magnifier: jump to the tagged moment (like "Show" before).
@@ -330,6 +349,29 @@ class TagManagementDialog(QDialog):
             self._file_tag_rows.append((name, ts, label))
 
         self._update_active_highlight()
+
+    def _score_button(self, text, tooltip, parent):
+        """Small "+"/"-" button next to a tag, styled like the score
+        buttons over the video."""
+        button = QPushButton(text, parent)
+        button.setFlat(True)
+        button.setCursor(Qt.PointingHandCursor)
+        button.setFixedSize(20, 20)
+        button.setToolTip(tooltip)
+        button.setStyleSheet(styles.SCORE_BUTTON)
+        return button
+
+    def _change_score(self, name, timestamp_sec, delta):
+        """One "+"/"-" press on an entry of the current file."""
+        if self.tags_db.change_score(name, self.current_file, timestamp_sec, delta) is None:
+            return
+        self.changed = True
+        self._reload_file_tags()
+        # Keep the timestamp chips over the video in sync (this window is
+        # modal, so they become visible again right after it is closed).
+        parent = self.parent()
+        if hasattr(parent, "_update_timestamp_tags"):
+            parent._update_timestamp_tags()
 
     def _update_active_highlight(self):
         """Emphasize the timestamp row(s) of the interval currently shown at

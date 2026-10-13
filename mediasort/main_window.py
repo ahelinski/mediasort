@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PySide6.QtWidgets import (
     QMainWindow, QStackedWidget, QApplication, QLabel, QPushButton,
-    QVBoxLayout, QWidget, QMessageBox,
+    QVBoxLayout, QHBoxLayout, QWidget, QMessageBox,
 )
 from PySide6.QtCore import Qt, QEvent, QUrl
 from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
@@ -313,6 +313,15 @@ class MainWindow(QMainWindow):
         # by the next/previous-timestamp navigation (E/Q). None = no
         # filter (all timestamp tags are shown).
         self.timestamp_tag_filter = None
+        # Optional minimum tag score set by the Browse dialog's "Filter by
+        # tag score" option (None = no score filter): timestamp tags below
+        # it are dimmed over the video and skipped by the next/previous
+        # navigation, and tag-browse instances below it are skipped too.
+        self.timestamp_tag_min_score = None
+        # Score of every timestamp entry of the current file, and of the
+        # tag-browse instances (refreshed while displaying/navigating).
+        self._timestamp_tag_scores = {}
+        self._tag_mode_scores = {}
         self.timestamp_tags_widget.hide()
 
         # Set of currently selected file paths. Persists until the app is
@@ -420,6 +429,8 @@ class MainWindow(QMainWindow):
         # A fresh folder is a new browsing context - drop any timestamp
         # tag filter coming from an earlier Browse dialog confirmation.
         self.timestamp_tag_filter = None
+        self.timestamp_tag_min_score = None
+        self._tag_mode_scores = {}
         self.video_viewer.stop()
         if self.media_items:
             self._show_current()
@@ -427,7 +438,7 @@ class MainWindow(QMainWindow):
             self._show_message(tr("main_window.no_media_in_folder"))
 
     def browse_custom(self, media_items, folder_for_context=None,
-                      timestamp_tag_filter=None):
+                      timestamp_tag_filter=None, min_tag_score=None):
         """Show a custom, precomputed list of (path, kind) files - used by
         the Browse dialog's folder/tag/type combination, which may span
         multiple folders (or none at all, if filtering by tag only).
@@ -438,7 +449,12 @@ class MainWindow(QMainWindow):
         tags chosen with the Browse dialog's "Filtruj znaczniki czasowe"
         option - from then on, only those tags' timestamp markers are
         shown over videos and used by the E/Q next/previous-timestamp
-        navigation (pass None/empty to clear any previous filter)."""
+        navigation (pass None/empty to clear any previous filter).
+
+        ``min_tag_score`` optionally receives the value of the Browse
+        dialog's "Filter by tag score" option: tags scored below it are
+        dimmed over videos and skipped by the next/previous navigation,
+        and tag-browse instances below it are skipped as well."""
         if folder_for_context:
             self.folder = str(Path(folder_for_context).resolve())
         self.media_items = list(media_items)
@@ -448,19 +464,38 @@ class MainWindow(QMainWindow):
         self.tag_mode_active = False
         self._tag_mode_rank = None
         self._magnifier_tour = None
+        self._tag_mode_scores = {}
         self.timestamp_tag_filter = set(timestamp_tag_filter) if timestamp_tag_filter else None
+        self.timestamp_tag_min_score = (
+            int(min_tag_score) if min_tag_score is not None else None
+        )
         self.video_viewer.stop()
         if self.media_items:
             self._show_current()
         else:
             self._show_message(tr("main_window.no_matching_media"))
 
+    def _allowed_tag_instances(self, tag_name):
+        """The instances of `tag_name` that pass the Browse dialog's
+        "Filter by tag score" threshold (all of them when it is off), with
+        the score cache refreshed for tag-mode navigation."""
+        scored = self.tags_db.instances_for_tag_scored(tag_name)
+        self._tag_mode_scores = {
+            (path, ts): score for path, ts, score in scored
+        }
+        if self.timestamp_tag_min_score is None:
+            return [(path, ts) for path, ts, _score in scored]
+        return [
+            (path, ts) for path, ts, score in scored
+            if score >= self.timestamp_tag_min_score
+        ]
+
     def enter_tag_browse_mode(self, tag_name):
         """Switch to "tag browse" mode (Alt+T): next/prev now walk through
         every instance of `tag_name` - a whole-file tag shows the file, a
         timestamp tag shows the file seeked to that second - regardless of
         which folder those files actually live in."""
-        instances = self.tags_db.instances_for_tag(tag_name)
+        instances = self._allowed_tag_instances(tag_name)
         if not instances:
             return
         self.tags_db.mark_tag_viewed(tag_name)
@@ -497,7 +532,7 @@ class MainWindow(QMainWindow):
         the instances in the tour's order, so the arrow keys keep walking
         exactly the same sequence once the window is closed."""
         instances = [
-            (path, ts) for path, ts in self.tags_db.instances_for_tag(tag_name)
+            (path, ts) for path, ts in self._allowed_tag_instances(tag_name)
             if Path(path).exists()
         ]
         if not instances:
@@ -602,6 +637,7 @@ class MainWindow(QMainWindow):
             self.tag_mode_instances = []
             self.tag_mode_index = 0
             self._tag_mode_rank = None
+            self._tag_mode_scores = {}
             self._magnifier_tour = None
             if target and os.path.exists(target):
                 # Keep showing the same file, now as an ordinary folder
@@ -800,6 +836,7 @@ class MainWindow(QMainWindow):
         self._visible_keys = []
         self._all_timestamp_tags = []
         self._file_timestamp_tags = []
+        self._timestamp_tag_scores = {}
         self._skip_ranges = []
         self._skip_ranges_duration_ms = None
         self._remove_timestamp_tag_items()
@@ -824,8 +861,16 @@ class MainWindow(QMainWindow):
             self._clear_timestamp_tags()
             return
 
+        scored = [
+            (name, int(ts), score)
+            for name, ts, score in self.tags_db.file_tags_scored(path)
+            if ts is not None
+        ]
+        # Score of every timestamp entry of this file, used for the "+"/"-"
+        # buttons and for the Browse dialog's score filter below.
+        self._timestamp_tag_scores = {(name, ts): score for name, ts, score in scored}
         all_timestamp_tags = sorted(
-            ((name, int(ts)) for name, ts in self.tags_db.file_tags(path) if ts is not None),
+            ((name, ts) for name, ts, _score in scored),
             key=lambda tag: tag[1],
         )
         # The skip-tag regions always follow the whole file, even while the
@@ -842,6 +887,27 @@ class MainWindow(QMainWindow):
         self._recompute_skip_ranges()
         self._refresh_timestamp_tags_window(force=True)
         self._position_overlays()
+
+    # -- tag scores -------------------------------------------------------
+    def _tag_score(self, name, timestamp_sec):
+        """Score of one timestamp entry of the current file (0 if unknown)."""
+        return self._timestamp_tag_scores.get((name, int(timestamp_sec)), 0)
+
+    def _tag_score_allowed(self, name, timestamp_sec):
+        """Whether an entry passes the Browse dialog's "Filter by tag
+        score" threshold (always True when no threshold is set)."""
+        if self.timestamp_tag_min_score is None:
+            return True
+        return self._tag_score(name, timestamp_sec) >= self.timestamp_tag_min_score
+
+    def _change_tag_score(self, name, timestamp_sec, delta):
+        """One "+"/"-" press on a timestamp tag of the current file."""
+        path = self.current_path()
+        if not path:
+            return
+        self.tags_db.change_score(name, path, timestamp_sec, delta)
+        self._update_timestamp_tags()
+        self._update_time_label()
 
     # -- "skip" tags ------------------------------------------------------
     def _skip_tag_names(self):
@@ -946,22 +1012,51 @@ class MainWindow(QMainWindow):
         self.timestamp_tags_layout.addWidget(plus_above, 0, Qt.AlignRight)
 
         for name, ts in visible:
-            button = QPushButton(
-                tr(
-                    "main_window.timestamp_tag_button",
-                    name=name,
-                    time=_format_ms(int(ts) * 1000),
-                ),
-                self.timestamp_tags_widget,
+            score = self._tag_score(name, ts)
+            dim = not self._tag_score_allowed(name, ts)
+            text = tr(
+                "main_window.timestamp_tag_button_scored" if score
+                else "main_window.timestamp_tag_button",
+                name=name,
+                time=_format_ms(int(ts) * 1000),
+                score=score,
             )
+
+            # One chip row: [ - ] Tag(2)@0:30 [ + ]
+            row = QWidget(self.timestamp_tags_widget)
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(2)
+
+            down = QPushButton("\u2212", row)      # −
+            down.setStyleSheet(styles.SCORE_BUTTON)
+            down.setCursor(Qt.PointingHandCursor)
+            down.setToolTip(tr("main_window.tag_score_down_tooltip"))
+            down.clicked.connect(
+                lambda _checked=False, n=name, t=ts: self._change_tag_score(n, t, -1)
+            )
+            row_layout.addWidget(down)
+
+            button = QPushButton(text, row)
             button.setCursor(Qt.PointingHandCursor)
-            self._set_timestamp_tag_button_active(button, False)
+            self._set_timestamp_tag_button_active(button, False, dim=dim)
             # Seek on press rather than release: this makes the action
             # immediate and avoids any later global mouse binding affecting
             # a completed click.
             button.pressed.connect(lambda timestamp=ts: self.video_viewer.go_to_timestamp(timestamp))
-            self.timestamp_tags_layout.addWidget(button, 0, Qt.AlignRight)
-            self._timestamp_tag_buttons.append((int(ts), button))
+            row_layout.addWidget(button)
+
+            up = QPushButton("+", row)
+            up.setStyleSheet(styles.SCORE_BUTTON)
+            up.setCursor(Qt.PointingHandCursor)
+            up.setToolTip(tr("main_window.tag_score_up_tooltip"))
+            up.clicked.connect(
+                lambda _checked=False, n=name, t=ts: self._change_tag_score(n, t, +1)
+            )
+            row_layout.addWidget(up)
+
+            self.timestamp_tags_layout.addWidget(row, 0, Qt.AlignRight)
+            self._timestamp_tag_buttons.append((int(ts), button, dim))
 
         plus_below = QLabel("+", self.timestamp_tags_widget)
         plus_below.setStyleSheet(styles.TS_MORE)
@@ -973,28 +1068,38 @@ class MainWindow(QMainWindow):
         self.timestamp_tags_widget.show()
 
     @staticmethod
-    def _set_timestamp_tag_button_active(button, active):
-        """Apply the standard timestamp style, optionally emphasizing it."""
+    def _set_timestamp_tag_button_active(button, active, dim=False):
+        """Apply the standard timestamp style, optionally emphasizing it.
+        ``dim`` marks a chip whose score is below the Browse dialog's
+        threshold - it stays visible but is greyed out."""
         button.setProperty("timestamp_tag_active", active)
-        if active:
+        button.setProperty("timestamp_tag_dim", dim)
+        if dim:
+            button.setStyleSheet(styles.TS_LINK_DIM)
+        elif active:
             button.setStyleSheet(styles.ACTIVE_TS_LINK)
         else:
             button.setStyleSheet(styles.TS_LINK)
 
     def _update_active_timestamp_tag(self, position_ms):
         """Bold the timestamp interval containing the playback position
-        among the currently visible tags."""
+        among the currently visible tags. Chips dimmed by the score filter
+        never get emphasized."""
         if not self._timestamp_tag_buttons:
             return
         current_second = max(int(position_ms), 0) / 1000
         active_timestamp = max(
-            (timestamp for timestamp, _button in self._timestamp_tag_buttons if timestamp <= current_second),
+            (
+                timestamp for timestamp, _button, dim in self._timestamp_tag_buttons
+                if timestamp <= current_second and not dim
+            ),
             default=None,
         )
-        for timestamp, button in self._timestamp_tag_buttons:
-            active = timestamp == active_timestamp
-            if button.property("timestamp_tag_active") != active:
-                self._set_timestamp_tag_button_active(button, active)
+        for timestamp, button, dim in self._timestamp_tag_buttons:
+            active = timestamp == active_timestamp and not dim
+            if (button.property("timestamp_tag_active") != active
+                    or button.property("timestamp_tag_dim") != dim):
+                self._set_timestamp_tag_button_active(button, active, dim)
 
     def next_item(self):
         if self.tag_mode_active:
@@ -1026,18 +1131,28 @@ class MainWindow(QMainWindow):
         every timestamp tag on the file regardless of tag name (or only
         the timestamp tags of the tags chosen via the Browse dialog's
         "Filtruj znaczniki czasowe" option when that filter is active),
-        and works the same way whether browsing a folder or by tag."""
+        and works the same way whether browsing a folder or by tag.
+
+        A second whose tags are all below the Browse dialog's "Filter by
+        tag score" threshold is skipped, so the navigation only visits the
+        highly rated moments."""
         if self.current_kind() != "video":
             return
         path = self.current_path()
         if not path:
             return
-        timestamps = self.tags_db.file_timestamps(path)
+        scored = [
+            (name, int(ts), score)
+            for name, ts, score in self.tags_db.file_tags_scored(path)
+            if ts is not None
+        ]
         if self.timestamp_tag_filter:
-            timestamps = sorted({
-                ts for name, ts in self.tags_db.file_tags(path)
-                if ts is not None and name in self.timestamp_tag_filter
-            })
+            scored = [t for t in scored if t[0] in self.timestamp_tag_filter]
+        timestamps = sorted({
+            ts for name, ts, score in scored
+            if self.timestamp_tag_min_score is None
+            or score >= self.timestamp_tag_min_score
+        })
         if not timestamps:
             return
         current_frame = self.video_viewer.player.position() // 1000
@@ -1636,6 +1751,7 @@ class MainWindow(QMainWindow):
                 dialog.result_items,
                 folder_for_context=dialog.result_folder,
                 timestamp_tag_filter=dialog.result_filter_tags,
+                min_tag_score=dialog.result_min_tag_score,
             )
 
 

@@ -38,7 +38,7 @@ from pathlib import Path
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QListWidgetItem,
     QLineEdit, QPushButton, QLabel, QGroupBox, QRadioButton, QButtonGroup,
-    QMessageBox, QCheckBox, QAbstractItemView
+    QMessageBox, QCheckBox, QAbstractItemView, QSpinBox, QAbstractSpinBox
 )
 from PySide6.QtCore import Qt, QEvent
 from PySide6.QtGui import QKeyEvent, QMouseEvent
@@ -67,6 +67,8 @@ def _default_session_state(current_folder):
         "tag_combine": "or",   # how multiple tags combine: "or" | "and"
         "type_filter": "both",
         "filter_timestamp_tags": False,  # show only chosen tags' timestamp markers
+        "filter_tag_score": False,       # skip tags scored below min_tag_score
+        "min_tag_score": 1,
     }
 
 
@@ -83,6 +85,9 @@ class BrowseDialog(QDialog):
         # Names of the tags whose timestamp markers should be filtered on
         # video (set when "Filtruj znaczniki czasowe" is checked), or None.
         self.result_filter_tags = None
+        # Minimum tag score for the video overlay/navigation (set when
+        # "Filter by tag score" is checked), or None.
+        self.result_min_tag_score = None
 
         # Restore the previous state from this app run, if any.
         self._session = _default_session_state(self.current_folder)
@@ -126,6 +131,14 @@ class BrowseDialog(QDialog):
         self.filter_ts_cb.setChecked(self._session.get("filter_timestamp_tags", False))
         if self.filter_ts_cb.isChecked() and not self.browse_tag_cb.isChecked():
             self.browse_tag_cb.setChecked(True)
+        # The score filter works on its own (without tag browsing it only
+        # affects the video overlay/navigation), so it never turns tag
+        # browsing on by itself.
+        self.filter_score_cb.setChecked(self._session.get("filter_tag_score", False))
+        self.filter_score_spin.setValue(int(self._session.get("min_tag_score", 1)))
+        # setChecked() only emits toggled when the state really changes, so
+        # sync the value field with the restored checkbox explicitly.
+        self.filter_score_spin.setEnabled(self.filter_score_cb.isChecked())
         self._apply_folder_enabled()
         self._apply_tag_enabled()
 
@@ -317,6 +330,34 @@ class BrowseDialog(QDialog):
         self.filter_ts_cb.setToolTip(tr("browse_dialog.filter_timestamp_tags_tooltip"))
         self.filter_ts_cb.toggled.connect(self._on_filter_ts_toggled)
         col.addWidget(self.filter_ts_cb)
+
+        # Tag score filter: available at all times. Without tag browsing it
+        # only skips low-scored timestamp tags over the video; with tag
+        # browsing the matching files are dropped from the results too.
+        # (Ordering the results by tag score is implicit while browsing by
+        # tag - see _compute_matching_items.) The checkbox and its value
+        # share a single row.
+        score_row = QHBoxLayout()
+        score_row.setContentsMargins(0, 0, 0, 0)
+        score_row.setSpacing(4)
+        self.filter_score_cb = QCheckBox(tr("browse_dialog.filter_by_tag_score"), self)
+        self.filter_score_cb.setToolTip(tr("browse_dialog.filter_by_tag_score_tooltip"))
+        self.filter_score_cb.toggled.connect(self._on_filter_score_toggled)
+        score_row.addWidget(self.filter_score_cb)
+
+        self.filter_score_spin = QSpinBox(self)
+        self.filter_score_spin.setRange(-99, 99)
+        self.filter_score_spin.setValue(1)
+        self.filter_score_spin.setFixedWidth(56)
+        # No up/down arrows: a small, clean numeric field that fits next to
+        # its label (the value is typed; arrow keys and the wheel still work).
+        self.filter_score_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self.filter_score_spin.setAlignment(Qt.AlignCenter)
+        self.filter_score_spin.setEnabled(self.filter_score_cb.isChecked())
+        self.filter_score_spin.valueChanged.connect(lambda _value: self._update_match_count())
+        score_row.addWidget(self.filter_score_spin)
+        score_row.addStretch(1)
+        col.addLayout(score_row)
         col.addStretch(1)
 
     def showEvent(self, event):
@@ -374,12 +415,19 @@ class BrowseDialog(QDialog):
             self.browse_tag_cb.setChecked(True)
         self._update_match_count()
 
+    def _on_filter_score_toggled(self, checked):
+        # Available with and without tag browsing - only the value field
+        # follows the checkbox.
+        self.filter_score_spin.setEnabled(checked)
+        self._update_match_count()
+
     def _apply_tag_enabled(self):
         enabled = self.browse_tag_cb.isChecked()
         for w in (self.tag_group, self.tag_list, self.combine_label,
                   self.combine_or_rb, self.combine_and_rb,
                   self.clear_tag_btn):
             w.setEnabled(enabled)
+        self.filter_score_cb.setEnabled(True)
 
     # -- custom location editing ----------------------------------------
     # The location edit is always visible, so "editing" is simply focusing
@@ -506,16 +554,38 @@ class BrowseDialog(QDialog):
             tag_files = None
 
         if folder_items is not None and tag_files is not None:
-            return [(p, k) for p, k in folder_items if p in tag_files]
-        if folder_items is not None:
-            return folder_items
-        # tag only
-        items = []
-        for p in sorted(tag_files):
-            kind = kind_for_path(p, image_exts, video_exts)
-            if kind is not None:
-                items.append((p, kind))
+            items = [(p, k) for p, k in folder_items if p in tag_files]
+        elif folder_items is not None:
+            items = list(folder_items)
+        else:
+            # tag only
+            items = []
+            for p in sorted(tag_files):
+                kind = kind_for_path(p, image_exts, video_exts)
+                if kind is not None:
+                    items.append((p, kind))
+
+        # Tag score, while browsing by tag: the highest rated files come
+        # first, and - when the score filter is on - the files whose
+        # matching tags are all below the threshold are dropped. Stable
+        # sort: equal scores keep the previous (path / folder) order.
+        if tags:
+            scores = self._tag_scores_by_file(tags)
+            if self.filter_score_cb.isChecked():
+                minimum = self.filter_score_spin.value()
+                items = [item for item in items if scores.get(item[0], 0) >= minimum]
+            items.sort(key=lambda item: -scores.get(item[0], 0))
         return items
+
+    def _tag_scores_by_file(self, tag_names):
+        """Highest score among `tag_names` for every file carrying one of
+        them - the value used by the sort/filter score options."""
+        scores = {}
+        for name in tag_names:
+            for path, score in self.tags_db.max_tag_scores(name).items():
+                if path not in scores or score > scores[path]:
+                    scores[path] = score
+        return scores
 
     def _update_match_count(self):
         message = self._missing_selection_message()
@@ -542,6 +612,11 @@ class BrowseDialog(QDialog):
         self.result_filter_tags = (
             self._selected_tags() if self.filter_ts_cb.isChecked() else None
         )
+        # Minimum tag score applied over the video ("Filter by tag score"),
+        # or None when that option is off.
+        self.result_min_tag_score = (
+            self.filter_score_spin.value() if self.filter_score_cb.isChecked() else None
+        )
         self.confirmed = True
         self.accept()
 
@@ -564,6 +639,8 @@ class BrowseDialog(QDialog):
             "tag_combine": self._tag_combine(),
             "type_filter": self._media_type_filter(),
             "filter_timestamp_tags": self.filter_ts_cb.isChecked(),
+            "filter_tag_score": self.filter_score_cb.isChecked(),
+            "min_tag_score": self.filter_score_spin.value(),
         }
 
     # ------------------------------------------------------------------

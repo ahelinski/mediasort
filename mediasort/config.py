@@ -122,6 +122,11 @@ DEFAULT_SETTINGS = {
     # main_window._visible_timestamp_tags); "+" markers indicate hidden
     # tags before/after the window.
     "max_visible_timestamp_tags": 20,
+    # Whole-file tags are shown over the photo/video too, above the
+    # timestamp chips, in a small grid: at most this many chips per row and
+    # at most this many rows. Further tags are summarised by a "+N" marker.
+    "whole_file_tags_per_row": 4,
+    "whole_file_tags_rows": 4,
     # Tag names that mark a fragment of a video to jump over while
     # watching (see main_window._compute_skip_ranges). As soon as playback reaches
     # such a timestamp tag, it jumps to the next timestamp tag of the file

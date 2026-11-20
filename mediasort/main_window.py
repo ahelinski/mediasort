@@ -322,10 +322,15 @@ class MainWindow(QMainWindow):
         # it are dimmed over the video and skipped by the next/previous
         # navigation, and tag-browse instances below it are skipped too.
         self.timestamp_tag_min_score = None
-        # Score of every timestamp entry of the current file, and of the
-        # tag-browse instances (refreshed while displaying/navigating).
+        # Score of every entry of the current file (whole-file entries have
+        # a None timestamp), and of the tag-browse instances (refreshed while
+        # displaying/navigating).
         self._timestamp_tag_scores = {}
         self._tag_mode_scores = {}
+        # Whole-file tags of the current file - shown above the timestamp
+        # chips in a small grid (see _add_whole_file_rows).
+        self._whole_file_tags = []
+        self._whole_file_keys = []
         self.timestamp_tags_widget.hide()
 
         # Set of currently selected file paths. Persists until the app is
@@ -689,7 +694,9 @@ class MainWindow(QMainWindow):
             self.image_viewer.load(path)
             self.stack.setCurrentWidget(self.image_viewer)
             self.time_label.hide()
-            self._clear_timestamp_tags()
+            # Photos have no timestamp chips, but their whole-file tags are
+            # shown in the same overlay.
+            self._update_timestamp_tags()
         else:
             self.video_viewer.load(path, autoplay=self._video_play_intent)
             self.stack.setCurrentWidget(self.video_viewer)
@@ -757,7 +764,7 @@ class MainWindow(QMainWindow):
             self.image_viewer.load(path)
             self.stack.setCurrentWidget(self.image_viewer)
             self.time_label.hide()
-            self._clear_timestamp_tags()
+            self._update_timestamp_tags()
 
         self.setWindowTitle(tr(
             "main_window.title_with_tag",
@@ -833,23 +840,27 @@ class MainWindow(QMainWindow):
         self._position_overlays()
 
     def _clear_timestamp_tags(self):
-        """Remove the whole timestamp-tag overlay (chips and "+" markers)
-        and forget the current video's tag list. Used when switching away
-        from a video or when showing a full-screen message."""
+        """Remove the whole tag overlay (whole-file rows, chips and "+"
+        markers) and forget the current file's tag lists. Used when there is
+        nothing to show or when displaying a full-screen message."""
         self._timestamp_tag_buttons = []
         self._visible_keys = []
         self._all_timestamp_tags = []
         self._file_timestamp_tags = []
         self._timestamp_tag_scores = {}
+        self._whole_file_tags = []
+        self._whole_file_keys = []
         self._skip_ranges = []
         self._skip_ranges_duration_ms = None
         self._remove_timestamp_tag_items()
 
     def _remove_timestamp_tag_items(self):
-        """Delete every widget in the timestamp-tag overlay layout without
-        touching the cached tag list (so the window can be rebuilt)."""
+        """Delete every widget in the tag overlay layout (whole-file rows,
+        chips and markers) without touching the cached tag lists (so the
+        overlay can be rebuilt)."""
         self._timestamp_tag_buttons = []
         self._visible_keys = []
+        self._whole_file_keys = []
         while self.timestamp_tags_layout.count():
             item = self.timestamp_tags_layout.takeAt(0)
             widget = item.widget()
@@ -858,23 +869,43 @@ class MainWindow(QMainWindow):
         self.timestamp_tags_widget.hide()
 
     def _update_timestamp_tags(self):
-        """Reload the current video's timestamp tags and rebuild the
-        overlay around the current playback position."""
+        """Reload the current file's tags (whole-file AND timestamp ones) and
+        rebuild the tag overlay.
+
+        Whole-file tags are shown for photos and videos alike - above the
+        timestamp chips; they do not count towards the timestamp window
+        limit."""
         path = self.current_path()
-        if self.current_kind() != "video" or not path:
+        if not path:
             self._clear_timestamp_tags()
             return
 
-        scored = [
+        scored = self.tags_db.file_tags_scored(path)
+        # Score of every entry of this file, used for the "+"/"-" buttons and
+        # for the Browse dialog's score filter. Whole-file entries are keyed
+        # with a None timestamp.
+        self._timestamp_tag_scores = {(name, ts): score for name, ts, score in scored}
+        self._whole_file_tags = sorted(
+            ((name, score) for name, ts, score in scored if ts is None),
+            key=lambda item: item[0].lower(),
+        )
+
+        if self.current_kind() != "video":
+            # A photo has no playback timeline: only the whole-file tags.
+            self._all_timestamp_tags = []
+            self._file_timestamp_tags = []
+            self._skip_ranges = []
+            self._skip_ranges_duration_ms = None
+            self._refresh_timestamp_tags_window(force=True)
+            return
+
+        timestamped = [
             (name, int(ts), score)
-            for name, ts, score in self.tags_db.file_tags_scored(path)
+            for name, ts, score in scored
             if ts is not None
         ]
-        # Score of every timestamp entry of this file, used for the "+"/"-"
-        # buttons and for the Browse dialog's score filter below.
-        self._timestamp_tag_scores = {(name, ts): score for name, ts, score in scored}
         all_timestamp_tags = sorted(
-            ((name, ts) for name, ts, _score in scored),
+            ((name, ts) for name, ts, _score in timestamped),
             key=lambda tag: tag[1],
         )
         # The skip-tag regions always follow the whole file, even while the
@@ -894,8 +925,11 @@ class MainWindow(QMainWindow):
 
     # -- tag scores -------------------------------------------------------
     def _tag_score(self, name, timestamp_sec):
-        """Score of one timestamp entry of the current file (0 if unknown)."""
-        return self._timestamp_tag_scores.get((name, int(timestamp_sec)), 0)
+        """Score of one entry of the current file (0 if unknown).
+
+        ``timestamp_sec`` is None for a whole-file tag."""
+        key = (name, int(timestamp_sec) if timestamp_sec is not None else None)
+        return self._timestamp_tag_scores.get(key, 0)
 
     def _tag_score_allowed(self, name, timestamp_sec):
         """Whether an entry passes the Browse dialog's "Filter by tag
@@ -905,7 +939,10 @@ class MainWindow(QMainWindow):
         return self._tag_score(name, timestamp_sec) >= self.timestamp_tag_min_score
 
     def _change_tag_score(self, name, timestamp_sec, delta):
-        """One "+"/"-" press on a timestamp tag of the current file."""
+        """One "+"/"-" press on a tag of the current file.
+
+        ``timestamp_sec`` is None for a whole-file tag; either way the entry
+        (and therefore the whole overlay) is reloaded afterwards."""
         path = self.current_path()
         if not path:
             return
@@ -975,39 +1012,49 @@ class MainWindow(QMainWindow):
         """Recompute which timestamp tags fit on screen around the current
         playback position and rebuild the overlay when that window changes.
 
+        The overlay also carries the current file's whole-file tags (shown
+        above the chips), so it is built whenever either part changes.
         Called on every playback position change (via _update_time_label)
         and after the tag set itself changes (_update_timestamp_tags).
-        Rebuilding the buttons is skipped while the visible window is
-        unchanged - only the active-interval highlight is updated then.
+        Rebuilding the buttons is skipped while nothing changed - only the
+        active-interval highlight is updated then.
         """
-        if not self._all_timestamp_tags:
+        whole = self._whole_file_tags
+        if self._all_timestamp_tags and self.current_kind() == "video":
+            limit = self.settings.get(
+                "max_visible_timestamp_tags", default=MAX_VISIBLE_TIMESTAMP_TAGS
+            )
+            try:
+                limit = max(1, int(limit))
+            except (TypeError, ValueError):
+                limit = MAX_VISIBLE_TIMESTAMP_TAGS
+            current_second = max(self.video_viewer.player.position(), 0) // 1000
+            visible, hidden_before, hidden_after = _visible_timestamp_tags(
+                self._all_timestamp_tags, current_second, limit
+            )
+        else:
+            visible, hidden_before, hidden_after = [], False, False
+
+        if not whole and not visible:
             self._remove_timestamp_tag_items()
             return
-        limit = self.settings.get(
-            "max_visible_timestamp_tags", default=MAX_VISIBLE_TIMESTAMP_TAGS
-        )
-        try:
-            limit = max(1, int(limit))
-        except (TypeError, ValueError):
-            limit = MAX_VISIBLE_TIMESTAMP_TAGS
-        current_second = max(self.video_viewer.player.position(), 0) // 1000
-        visible, hidden_before, hidden_after = _visible_timestamp_tags(
-            self._all_timestamp_tags, current_second, limit
-        )
 
-        if not force and visible == self._visible_keys:
+        if (not force and visible == self._visible_keys
+                and whole == self._whole_file_keys):
             self._update_active_timestamp_tag(self.video_viewer.player.position())
             return
 
-        self._rebuild_timestamp_tag_buttons(visible, hidden_before, hidden_after)
+        self._rebuild_tag_buttons(whole, visible, hidden_before, hidden_after)
         self._update_active_timestamp_tag(self.video_viewer.player.position())
 
-    def _rebuild_timestamp_tag_buttons(self, visible, hidden_before, hidden_after):
-        """(Re)create the timestamp-tag chips for ``visible`` and the "+"
-        overflow markers, in order: hidden-previous marker, chips,
-        hidden-next marker."""
+    def _rebuild_tag_buttons(self, whole, visible, hidden_before, hidden_after):
+        """(Re)create the overlay: the whole-file tag rows on top, then the
+        timestamp-tag chips for ``visible`` with the "+" overflow markers."""
         self._remove_timestamp_tag_items()
         self._visible_keys = list(visible)
+        self._whole_file_keys = list(whole)
+
+        self._add_whole_file_rows(whole)
 
         plus_above = QLabel("+", self.timestamp_tags_widget)
         plus_above.setStyleSheet(styles.TS_MORE)
@@ -1016,51 +1063,11 @@ class MainWindow(QMainWindow):
         self.timestamp_tags_layout.addWidget(plus_above, 0, Qt.AlignRight)
 
         for name, ts in visible:
-            score = self._tag_score(name, ts)
-            dim = not self._tag_score_allowed(name, ts)
-            text = tr(
-                "main_window.timestamp_tag_button_scored" if score
-                else "main_window.timestamp_tag_button",
-                name=name,
-                time=_format_ms(int(ts) * 1000),
-                score=score,
-            )
-
-            # One chip row: [ - ] Tag(2)@0:30 [ + ]
-            row = QWidget(self.timestamp_tags_widget)
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(0, 0, 0, 0)
-            row_layout.setSpacing(2)
-
-            down = QPushButton("\u2212", row)      # −
-            down.setStyleSheet(styles.SCORE_BUTTON)
-            down.setCursor(Qt.PointingHandCursor)
-            down.setToolTip(tr("main_window.tag_score_down_tooltip"))
-            down.clicked.connect(
-                lambda _checked=False, n=name, t=ts: self._change_tag_score(n, t, -1)
-            )
-            row_layout.addWidget(down)
-
-            button = QPushButton(text, row)
-            button.setCursor(Qt.PointingHandCursor)
-            self._set_timestamp_tag_button_active(button, False, dim=dim)
-            # Seek on press rather than release: this makes the action
-            # immediate and avoids any later global mouse binding affecting
-            # a completed click.
-            button.pressed.connect(lambda timestamp=ts: self.video_viewer.go_to_timestamp(timestamp))
-            row_layout.addWidget(button)
-
-            up = QPushButton("+", row)
-            up.setStyleSheet(styles.SCORE_BUTTON)
-            up.setCursor(Qt.PointingHandCursor)
-            up.setToolTip(tr("main_window.tag_score_up_tooltip"))
-            up.clicked.connect(
-                lambda _checked=False, n=name, t=ts: self._change_tag_score(n, t, +1)
-            )
-            row_layout.addWidget(up)
-
+            row, button = self._make_score_chip(name, self._tag_score(name, ts), ts)
             self.timestamp_tags_layout.addWidget(row, 0, Qt.AlignRight)
-            self._timestamp_tag_buttons.append((int(ts), button, dim))
+            self._timestamp_tag_buttons.append(
+                (int(ts), button, not self._tag_score_allowed(name, ts))
+            )
 
         plus_below = QLabel("+", self.timestamp_tags_widget)
         plus_below.setStyleSheet(styles.TS_MORE)
@@ -1070,6 +1077,106 @@ class MainWindow(QMainWindow):
 
         self.timestamp_tags_widget.adjustSize()
         self.timestamp_tags_widget.show()
+
+    def _add_whole_file_rows(self, whole):
+        """Add the whole-file tags above the timestamp chips.
+
+        They are laid out in a grid of at most ``whole_file_tags_per_row``
+        chips in each of at most ``whole_file_tags_rows`` rows (settings,
+        both default 4); any remaining tags are summarised by a "+N"
+        marker. These chips are not part of the timestamp window, so they
+        never count towards ``max_visible_timestamp_tags``."""
+        per_row = self._positive_setting("whole_file_tags_per_row", 4)
+        max_rows = self._positive_setting("whole_file_tags_rows", 4)
+        shown = whole[:per_row * max_rows]
+        hidden = len(whole) - len(shown)
+
+        row_layout = None
+        for index, (name, score) in enumerate(shown):
+            if index % per_row == 0:
+                row_widget = QWidget(self.timestamp_tags_widget)
+                row_layout = QHBoxLayout(row_widget)
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                row_layout.setSpacing(4)
+                self.timestamp_tags_layout.addWidget(row_widget, 0, Qt.AlignRight)
+            chip_row, _button = self._make_score_chip(name, score, None)
+            row_layout.addWidget(chip_row)
+
+        if hidden and row_layout is not None:
+            more = QLabel(f"+{hidden}", self.timestamp_tags_widget)
+            more.setStyleSheet(styles.TS_MORE)
+            more.setAlignment(Qt.AlignCenter)
+            row_layout.addWidget(more)
+
+    def _make_score_chip(self, name, score, timestamp_sec):
+        """One tag chip with its "+"/"-" score buttons.
+
+        ``timestamp_sec`` is None for a whole-file tag: clicking its name
+        does nothing (there is no moment to seek to), while a timestamp chip
+        seeks to its second on press."""
+        if timestamp_sec is None:
+            text = tr(
+                "main_window.whole_file_tag_button_scored" if score
+                else "main_window.whole_file_tag_button",
+                name=name,
+                score=score,
+            )
+        else:
+            text = tr(
+                "main_window.timestamp_tag_button_scored" if score
+                else "main_window.timestamp_tag_button",
+                name=name,
+                time=_format_ms(int(timestamp_sec) * 1000),
+                score=score,
+            )
+
+        # One chip row: [ - ] Tag(2) [ + ]
+        row = QWidget(self.timestamp_tags_widget)
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(2)
+
+        down = QPushButton("\u2212", row)      # −
+        down.setStyleSheet(styles.SCORE_BUTTON)
+        down.setCursor(Qt.PointingHandCursor)
+        down.setToolTip(tr("main_window.tag_score_down_tooltip"))
+        down.clicked.connect(
+            lambda _checked=False, n=name, t=timestamp_sec: self._change_tag_score(n, t, -1)
+        )
+        row_layout.addWidget(down)
+
+        button = QPushButton(text, row)
+        self._set_timestamp_tag_button_active(
+            button, False, dim=not self._tag_score_allowed(name, timestamp_sec)
+        )
+        if timestamp_sec is not None:
+            button.setCursor(Qt.PointingHandCursor)
+            # Seek on press rather than release: this makes the action
+            # immediate and avoids any later global mouse binding affecting
+            # a completed click.
+            button.pressed.connect(
+                lambda timestamp=timestamp_sec: self.video_viewer.go_to_timestamp(timestamp)
+            )
+        row_layout.addWidget(button)
+
+        up = QPushButton("+", row)
+        up.setStyleSheet(styles.SCORE_BUTTON)
+        up.setCursor(Qt.PointingHandCursor)
+        up.setToolTip(tr("main_window.tag_score_up_tooltip"))
+        up.clicked.connect(
+            lambda _checked=False, n=name, t=timestamp_sec: self._change_tag_score(n, t, +1)
+        )
+        row_layout.addWidget(up)
+
+        return row, button
+
+    def _positive_setting(self, key, default):
+        """Read an integer setting that must be at least 1."""
+        try:
+            value = int(self.settings.get(key, default=default))
+        except (TypeError, ValueError):
+            return default
+        return max(1, value)
 
     @staticmethod
     def _set_timestamp_tag_button_active(button, active, dim=False):

@@ -186,6 +186,9 @@ created automatically at first launch if it does not exist).
 - Photo orientation is read from the EXIF `Orientation` tag (just like in
   other viewers), so photos taken with a rotated camera display in the
   correct, upright orientation.
+- The photo's **whole-file tags** are shown in the top-right corner (see
+  "Tag overlay" under Videos) - each with its score and the same `−` / `+`
+  buttons.
 
 ### Videos
 - Full-screen playback.
@@ -417,12 +420,19 @@ each other:
        and **skipped** by the `E`/`Q` navigation and by the tag-browse
        (`Alt+T`) stepping;
      - **with "Browse tag"** — in addition, files whose matching selected
-       tags are *all* scored below the value are dropped from the results;
-     - while browsing by tag the results are **always ordered by the tag
-       score** (the file whose selected tag scored best comes first; equal
-       scores keep the previous order) — there is no separate switch for it.
+       tags are *all* scored below the value are dropped from the results.
      - The option is session-scoped, like all other Browse dialog settings —
        restarting the application resets it.
+   - At the top of the column there is the **"Sort by"** group (a framed
+     group with radio buttons, exactly like "File type" below it):
+     - **Name** (default) — file name, alphabetically; equal names are
+       ordered by their full path, so the order is always deterministic;
+     - **File size** — largest files first (missing sizes count as 0);
+     - **Tag score** — the file whose selected tag scored best comes first.
+       This option is available only while "Browse tag" is checked and at
+       least one tag is selected; if the tags or tag browsing disappear it
+       falls back to "Name". The chosen order is also remembered between
+       opens (session-scoped, like the other options).
 
 You must choose a **folder OR a tag** (both are allowed) — if both fields
 are empty, the "Open" button shows an error. Combining rules:
@@ -516,6 +526,15 @@ error message).
   **`−` / `+`** score buttons (`Tag(2)@00:30`); a chip whose score is below
   the minimum set in the Open/Browse dialog is dimmed and skipped by the
   `E`/`Q` navigation.
+- **Whole-file tags** are shown in the same top-right corner too, **above**
+  the timestamp chips (on photos and videos alike). They have the same
+  look - `Name` / `Name(2)` with `−` / `+` score buttons - but their name
+  does nothing when clicked (there is no moment to seek to). They are laid
+  out in a small grid: at most `whole_file_tags_per_row` chips in each of at
+  most `whole_file_tags_rows` rows (both default 4); further tags are
+  summarised by a `+N` marker. They never count towards
+  `max_visible_timestamp_tags`, and the Open/Browse score filter dims them
+  the same way it dims timestamp chips.
   - `Esc` / the "Close" button — closes the window.
 - **`Alt+T` — browse by tag** — opens a dialog with the list of **recently
   browsed tags** (separate from the Open/Browse dialog — this one shows each

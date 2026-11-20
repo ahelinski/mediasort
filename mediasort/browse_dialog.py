@@ -33,6 +33,7 @@ filter) between opens within one application run.  When the app restarts,
 the state resets to: only "Browse folder" checked, folder mode relative,
 folder set to the current folder.
 """
+import os
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -66,6 +67,7 @@ def _default_session_state(current_folder):
         "tags": [],            # selected tag names (one or more allowed)
         "tag_combine": "or",   # how multiple tags combine: "or" | "and"
         "type_filter": "both",
+        "sort_by": "name",               # "name" | "size" | "score"
         "filter_timestamp_tags": False,  # show only chosen tags' timestamp markers
         "filter_tag_score": False,       # skip tags scored below min_tag_score
         "min_tag_score": 1,
@@ -158,6 +160,7 @@ class BrowseDialog(QDialog):
                     self.tag_list.item(row).setSelected(True)
                     break
         self._set_tag_combine(self._session.get("tag_combine", "or"))
+        self._restore_sort(self._session.get("sort_by", "name"))
         self.location_edit.setText(restored_folder)
         self._update_match_count()
 
@@ -307,6 +310,29 @@ class BrowseDialog(QDialog):
     def _build_type_column(self, columns):
         col = QVBoxLayout()
         columns.addLayout(col, 1)
+
+        # Order of the results: by name, by file size (largest first) or by
+        # the selected tags' score (only possible while browsing by tag).
+        # Presented exactly like the file-type choice below: a framed group
+        # with one radio button per option.
+        sort_box = QGroupBox(tr("browse_dialog.sort_group"), self)
+        sort_layout = QVBoxLayout(sort_box)
+        self.sort_group = QButtonGroup(self)
+        self.sort_name_rb = QRadioButton(tr("browse_dialog.sort_name"), sort_box)
+        self.sort_size_rb = QRadioButton(tr("browse_dialog.sort_size"), sort_box)
+        self.sort_score_rb = QRadioButton(tr("browse_dialog.sort_tag_score"), sort_box)
+        self.sort_score_rb.setToolTip(tr("browse_dialog.sort_tooltip"))
+        self.sort_name_rb.setChecked(True)
+        for mode, radio in (("name", self.sort_name_rb),
+                            ("size", self.sort_size_rb),
+                            ("score", self.sort_score_rb)):
+            radio.setProperty("sort_mode", mode)
+            self.sort_group.addButton(radio)
+            radio.toggled.connect(
+                lambda checked: self._update_match_count() if checked else None
+            )
+            sort_layout.addWidget(radio)
+        col.addWidget(sort_box)
 
         type_box = QGroupBox(tr("browse_dialog.type_group"), self)
         type_layout = QVBoxLayout(type_box)
@@ -565,17 +591,65 @@ class BrowseDialog(QDialog):
                 if kind is not None:
                     items.append((p, kind))
 
-        # Tag score, while browsing by tag: the highest rated files come
-        # first, and - when the score filter is on - the files whose
-        # matching tags are all below the threshold are dropped. Stable
-        # sort: equal scores keep the previous (path / folder) order.
-        if tags:
-            scores = self._tag_scores_by_file(tags)
-            if self.filter_score_cb.isChecked():
-                minimum = self.filter_score_spin.value()
-                items = [item for item in items if scores.get(item[0], 0) >= minimum]
-            items.sort(key=lambda item: -scores.get(item[0], 0))
-        return items
+        # Tag-score filter: while browsing by tag, the files whose matching
+        # tags are all below the threshold are dropped.
+        scores = self._tag_scores_by_file(tags) if tags else {}
+        if tags and self.filter_score_cb.isChecked():
+            minimum = self.filter_score_spin.value()
+            items = [item for item in items if scores.get(item[0], 0) >= minimum]
+        return self._sort_items(items, scores)
+
+    def _sort_items(self, items, scores):
+        """Order the results according to the "Sort by" choice.
+
+        Ties are broken by file name and then by full path, so the order is
+        always deterministic."""
+        mode = self._sort_by()
+        if mode == "size":
+            return sorted(items, key=lambda item: (
+                -self._file_size(item[0]),
+                Path(item[0]).name.lower(),
+                item[0].lower(),
+            ))
+        if mode == "score" and scores:
+            return sorted(items, key=lambda item: (
+                -scores.get(item[0], 0),
+                Path(item[0]).name.lower(),
+                item[0].lower(),
+            ))
+        return sorted(items, key=lambda item: (
+            Path(item[0]).name.lower(),
+            item[0].lower(),
+        ))
+
+    def _sort_by(self):
+        for radio in self.sort_group.buttons():
+            if radio.isChecked():
+                return radio.property("sort_mode") or "name"
+        return "name"
+
+    def _restore_sort(self, mode):
+        for radio in self.sort_group.buttons():
+            if radio.property("sort_mode") == mode:
+                radio.setChecked(True)
+                return
+
+    def _apply_sort_available(self):
+        """Enable "Tag score" only while browsing by tag with at least one tag
+        selected, and fall back to "Name" when it stops being possible."""
+        has_tags = self.browse_tag_cb.isChecked() and bool(self._selected_tags())
+        self.sort_score_rb.setEnabled(has_tags)
+        if self._sort_by() == "score" and not has_tags:
+            self.sort_name_rb.blockSignals(True)
+            self.sort_name_rb.setChecked(True)
+            self.sort_name_rb.blockSignals(False)
+
+    @staticmethod
+    def _file_size(path):
+        try:
+            return os.path.getsize(path)
+        except OSError:
+            return 0
 
     def _tag_scores_by_file(self, tag_names):
         """Highest score among `tag_names` for every file carrying one of
@@ -588,6 +662,7 @@ class BrowseDialog(QDialog):
         return scores
 
     def _update_match_count(self):
+        self._apply_sort_available()
         message = self._missing_selection_message()
         if message is not None:
             self.match_label.setText(message)
@@ -638,6 +713,7 @@ class BrowseDialog(QDialog):
             "tags": self._selected_tags(),
             "tag_combine": self._tag_combine(),
             "type_filter": self._media_type_filter(),
+            "sort_by": self._sort_by(),
             "filter_timestamp_tags": self.filter_ts_cb.isChecked(),
             "filter_tag_score": self.filter_score_cb.isChecked(),
             "min_tag_score": self.filter_score_spin.value(),

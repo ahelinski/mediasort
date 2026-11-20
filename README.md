@@ -586,7 +586,7 @@ row offers:
 ### Database management (`F10`)
 
 The database window shows the number of entries, files and tags, and offers
-three maintenance operations:
+five maintenance operations:
 
 - **Compact database** — removes entries whose file no longer exists on
   disk (and tags left without any entries). Paths that cannot be checked
@@ -597,6 +597,28 @@ three maintenance operations:
 - **Import from CSV** — reads the same format and appends the rows,
   skipping those duplicating an existing entry. Files exported before
   scores existed (three columns) import fine — their entries get score 0.
+- **Export folder…** — pick a folder and every tag entry of the files inside
+  it (and all its subfolders) is written to `mediasort-export.json` **in that
+  folder**, with paths **relative** to it (always with `/`), so the whole
+  folder can be moved anywhere without losing the tags. The JSON holds the
+  tag name, the timestamp (or `null` for a whole-file tag) and the score of
+  every entry. Files outside the chosen folder are not exported.
+- **Import folder…** — pick the folder again after moving it: the export
+  file is found inside it (the canonical `mediasort-export.json`, or another
+  `*.json` carrying the MediaSort marker) and every entry is recreated for
+  the files' **new** absolute paths. Relative paths are joined onto the
+  chosen folder; both separators are accepted (`sub/clip.mp4` and
+  `sub\clip.mp4`), and absolute paths from another system (e.g.
+  `C:\Users\…\MyFolder\sub\clip.mp4`) are mapped by keeping what follows
+  the exported root folder name. Paths trying to leave the chosen folder
+  (`..`) are ignored.
+  - Import is idempotent: entries that already exist are skipped (their
+    score is kept), so importing twice is harmless.
+  - Files listed in the export but absent from the folder are skipped and
+    reported (they do not create dead entries in the database).
+  - A typical cross-system move: **Export folder** → move/rename the folder
+    in the OS → **Import folder** in the new place (on any machine/OS and in
+    any database).
 
 ## Configuring keyboard shortcuts
 
@@ -729,7 +751,8 @@ MediaSort/
     ├── tag_suggestions.py          # tag autocomplete popup for the tagging dialogs
     ├── tag_management_dialog.py    # Manage File Tags (T): rows with icons, edit form
     ├── tag_browse_dialog.py        # browsing files by tag (Alt+T)
-    ├── db_management_dialog.py     # database tools: compact, CSV (F10)
+    ├── db_management_dialog.py     # database tools: compact, CSV, folder export/import (F10)
+    ├── folder_export.py            # export/import a whole folder's tag data (relative paths)
     ├── manage_tags_dialog.py       # Manage All Tags (F9): browse/delete/merge + Play-Pause
     ├── trash_dialog.py             # "move to trash" confirmation (Delete key)
     ├── trash.py                    # system trash: Recycle Bin (Windows) / freedesktop (Linux)

@@ -225,6 +225,24 @@ class TagsDatabase:
             self.remove_tag(tag, file)
 
     # -- queries ----------------------------------------------------------
+    def all_assignments(self):
+        """Return ``[(file_path, tag_name, timestamp_sec_or_None, score), ...]``
+        for every assignment in the database, ordered by file, then timestamp,
+        then tag name (used by the folder export)."""
+        cursor = self.conn.execute(
+            """
+            SELECT a.file_path AS path, t.name AS name, a.timestamp_sec AS ts,
+                   a.score AS score
+            FROM tag_assignments a JOIN tags t ON t.id = a.tag_id
+            ORDER BY a.file_path COLLATE NOCASE ASC, a.timestamp_sec ASC,
+                     t.name COLLATE NOCASE ASC
+            """
+        )
+        return [
+            (row["path"], row["name"], self._from_db_timestamp(row["ts"]), int(row["score"]))
+            for row in cursor.fetchall()
+        ]
+
     def file_tags_scored(self, file_path):
         """Return ``[(tag_name, timestamp_sec_or_None, score), ...]`` for a
         file, oldest assignment first (same order as file_tags)."""

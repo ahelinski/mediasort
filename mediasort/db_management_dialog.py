@@ -13,6 +13,12 @@ distinct files, distinct tags) and offers four maintenance operations:
   * Import from CSV - append assignments from the same format, skipping
     rows that duplicate an existing assignment (same tag, same file, and
     the same timestamp when one is given).
+  * Export folder - write every tag entry of the files inside a chosen
+    folder (and its subfolders) to a JSON file *inside* that folder, with
+    relative paths, so the whole folder can be moved elsewhere.
+  * Import folder - read that file back after the move and recreate the
+    entries for the new absolute paths (both Windows and Linux path
+    separators are accepted).
 
 Tag maintenance lives in its own windows: "Manage All Tags" (F9, see
 manage_tags_dialog.py) and "Manage File Tags" (T).
@@ -21,6 +27,8 @@ Errors from any of the operations are shown in a message box and their
 details (with the full stack trace) are appended to log.txt in the
 application folder.
 """
+from pathlib import Path
+
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QGroupBox,
     QMessageBox, QFileDialog
@@ -30,6 +38,10 @@ from PySide6.QtGui import QKeyEvent
 
 from .i18n import tr
 from . import styles
+from .app_log import log_exception
+from .folder_export import (
+    EXPORT_FILE_NAME, export_folder, import_folder,
+)
 
 
 class DbManagementDialog(QDialog):
@@ -63,12 +75,20 @@ class DbManagementDialog(QDialog):
         self.compact_btn = QPushButton(tr("db_manage.compact_btn"), self)
         self.export_btn = QPushButton(tr("db_manage.export_btn"), self)
         self.import_btn = QPushButton(tr("db_manage.import_btn"), self)
+        self.folder_export_btn = QPushButton(tr("db_manage.folder_export_btn"), self)
+        self.folder_import_btn = QPushButton(tr("db_manage.folder_import_btn"), self)
+        self.folder_export_btn.setToolTip(tr("db_manage.folder_export_tooltip"))
+        self.folder_import_btn.setToolTip(tr("db_manage.folder_import_tooltip"))
         self.compact_btn.clicked.connect(self._compact)
         self.export_btn.clicked.connect(self._export)
         self.import_btn.clicked.connect(self._import_csv)
+        self.folder_export_btn.clicked.connect(self._export_folder)
+        self.folder_import_btn.clicked.connect(self._import_folder)
         ops_layout.addWidget(self.compact_btn)
         ops_layout.addWidget(self.export_btn)
         ops_layout.addWidget(self.import_btn)
+        ops_layout.addWidget(self.folder_export_btn)
+        ops_layout.addWidget(self.folder_import_btn)
         layout.addWidget(ops_box)
 
         btn_row = QHBoxLayout()
@@ -178,6 +198,74 @@ class DbManagementDialog(QDialog):
             self, tr("db_manage.import_title"),
             tr("db_manage.import_done", added=added, skipped=skipped),
         )
+
+    # ------------------------------------------------------------------
+    # Folder export / import (moving a whole folder without losing tags)
+    # ------------------------------------------------------------------
+    def _initial_folder(self):
+        """Starting folder for the folder pickers: the main window's current
+        folder, so exporting the folder being browsed is a single click."""
+        parent = self.parent()
+        folder = getattr(parent, "folder", "") if parent is not None else ""
+        return folder or str(Path.home())
+
+    def _export_folder(self):
+        folder = QFileDialog.getExistingDirectory(
+            self, tr("db_manage.folder_export_title"), self._initial_folder()
+        )
+        if not folder:
+            return
+        try:
+            stats = export_folder(self.tags_db, folder)
+        except Exception as e:                      # noqa: BLE001
+            log_exception("export_folder", e)
+            QMessageBox.critical(
+                self, tr("common.error_title"),
+                tr("db_manage.folder_export_error", error=e),
+            )
+            return
+        QMessageBox.information(
+            self, tr("db_manage.folder_export_title"),
+            tr("db_manage.folder_export_done", files=stats["files"],
+               entries=stats["entries"], path=stats["path"]),
+        )
+
+    def _import_folder(self):
+        folder = QFileDialog.getExistingDirectory(
+            self, tr("db_manage.folder_import_title"), self._initial_folder()
+        )
+        if not folder:
+            return
+        try:
+            stats = import_folder(self.tags_db, folder)
+        except FileNotFoundError:
+            QMessageBox.warning(
+                self, tr("db_manage.folder_import_title"),
+                tr("db_manage.folder_import_no_file", name=EXPORT_FILE_NAME),
+            )
+            return
+        except ValueError as e:
+            QMessageBox.warning(
+                self, tr("db_manage.folder_import_title"),
+                tr("db_manage.folder_import_bad_file", error=e),
+            )
+            return
+        except Exception as e:                      # noqa: BLE001
+            log_exception("import_folder", e)
+            QMessageBox.critical(
+                self, tr("common.error_title"),
+                tr("db_manage.folder_import_error", error=e),
+            )
+            return
+        self._refresh_stats()
+        message = tr("db_manage.folder_import_done", files=stats["files"],
+                     added=stats["added"], skipped=stats["skipped"],
+                     source=stats["source"])
+        if stats["missing"]:
+            examples = ", ".join(Path(p).name for p in stats["missing_paths"][:5])
+            message += "\n\n" + tr("db_manage.folder_import_missing",
+                                    count=stats["missing"], examples=examples)
+        QMessageBox.information(self, tr("db_manage.folder_import_title"), message)
 
     # ------------------------------------------------------------------
     # Keyboard handling - Esc closes the dialog.

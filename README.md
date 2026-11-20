@@ -495,7 +495,7 @@ error message).
 - **`T` — Manage File Tags** — opens a window with a tag
   text field, the list of recently used tags on the left (up/down arrows
   select, filling the text field) and the list of the current file's tags on
-  the right (tags at video seconds shown as `{TAG}@{MM:SS}`). The text field
+  the right (tags at video seconds shown as `{TAG} | {score} | {MM:SS}`). The text field
   has the same tag autocomplete as the assign dialog (suggestions after two
   typed characters, walked with `↓`/`↑`). The video is
   automatically paused when this window opens and resumed when it closes
@@ -507,7 +507,7 @@ error message).
     - **`−` / `+`** — lower/raise the **score** of that entry by one. A score
       belongs to one entry (a tag on one file, or a tag at one second of a
       video) and defaults to 0; it is shown next to the tag name in
-      parentheses once it differs from 0, e.g. `Tag(2)@00:30`;
+      after the name once it differs from 0, e.g. `Tag | 2 | 00:30`;
     - **magnifier** (timestamp tags only) — jumps to that moment;
     - **pencil** — opens a small form to change that entry: the tag name
       and, for a timestamp tag, the time (`mm:ss`). The entry is moved to
@@ -521,15 +521,21 @@ error message).
     the highlight follows the playback while the window is open.
   - **Play / Pause** at the bottom controls the video.
 - While a video plays, all tags assigned to a specific time are visible in
-  the top-right corner, below the time information. Clicking a `{TAG}@{MM:SS}`
-  tag moves playback to the assigned second. Each chip is a row with its own
-  **`−` / `+`** score buttons (`Tag(2)@00:30`); a chip whose score is below
-  the minimum set in the Open/Browse dialog is dimmed and skipped by the
-  `E`/`Q` navigation.
+  the top-right corner, below the time information. Clicking a `{TAG} | {MM:SS}`
+  tag moves playback to the assigned second. Each chip shows the tag name and
+  its score (`Tag | 2 | 00:30`), and its **`−` / `+`** score buttons appear -
+  larger, for easy clicking - only while the mouse is **over that chip
+  row**; a chip whose score is below the minimum set in the Open/Browse
+  dialog is dimmed and skipped by the `E`/`Q` navigation. When more
+  timestamp tags exist than fit on screen (`max_visible_timestamp_tags`,
+  default 20), a **`...`** marker above/below the chips - shifted inwards
+  from the right edge by about five characters - shows that more tags wait
+  in that direction.
 - **Whole-file tags** are shown in the same top-right corner too, **above**
   the timestamp chips (on photos and videos alike). They have the same
-  look - `Name` / `Name(2)` with `−` / `+` score buttons - but their name
-  does nothing when clicked (there is no moment to seek to). They are laid
+  look - `Name` / `Name | 2` with `−` / `+` score buttons revealed on
+  mouse-over (the whole row of up to 4 chips lights up at once) - but their
+  name does nothing when clicked (there is no moment to seek to). They are laid
   out in a small grid: at most `whole_file_tags_per_row` chips in each of at
   most `whole_file_tags_rows` rows (both default 4); further tags are
   summarised by a `+N` marker. They never count towards

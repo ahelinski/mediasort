@@ -119,7 +119,7 @@ DEFAULT_SETTINGS = {
     "browse_subfolder_depth": 1,
     # Maximum number of timestamp-tag links shown overlaid on the video at
     # once. The shown window follows the playback position (see
-    # main_window._visible_timestamp_tags); "+" markers indicate hidden
+    # main_window._visible_timestamp_tags); "..." markers indicate hidden
     # tags before/after the window.
     "max_visible_timestamp_tags": 20,
     # Whole-file tags are shown over the photo/video too, above the

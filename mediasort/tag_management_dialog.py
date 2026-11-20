@@ -38,11 +38,6 @@ def _format_ts(seconds):
     return f"{m:02d}:{s:02d}"
 
 
-def _score_suffix(score):
-    """"(2)" when a tag has a score, "" while it is still 0."""
-    return f"({score})" if score else ""
-
-
 class _TagEditDialog(QDialog):
     """Small form editing one tag entry of the current file.
 
@@ -289,9 +284,14 @@ class TagManagementDialog(QDialog):
             t[0].lower(),                      # alphabetical (case-insensitive)
         ))
         for name, ts, score in tags:
-            text = f"{name}{_score_suffix(score)}"
+            # "Name | 2" for a whole-file tag, "Name | 2 | 00:30" for a
+            # timestamp one; the score part is left out while it is 0.
+            parts = [name]
+            if score:
+                parts.append(str(score))
             if ts is not None:
-                text += f"@{_format_ts(ts)}"
+                parts.append(_format_ts(ts))
+            text = " | ".join(parts)
 
             row_widget = QWidget(self.file_tags_list)
             row_layout = QHBoxLayout(row_widget)

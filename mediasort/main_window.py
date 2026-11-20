@@ -7,7 +7,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QWidget, QMessageBox,
 )
 from PySide6.QtCore import Qt, QEvent, QUrl
-from PySide6.QtGui import QKeyEvent, QMouseEvent, QWheelEvent
+from PySide6.QtGui import (
+    QCursor, QFontMetrics, QKeyEvent, QMouseEvent, QWheelEvent,
+)
 from PySide6.QtMultimedia import QMediaPlayer
 
 from .config import Settings
@@ -225,6 +227,74 @@ def _pause_video_while_open(f):
             self._update_timestamp_tags()
 
     return wrapper
+
+class _HoverScoreRow(QWidget):
+    """One tag chip with its "-"/"+" score buttons, revealed on mouse-over.
+
+    The buttons are hidden by default - the overlay then shows just the tag
+    name and its score - and appear, much larger, while the pointer is over
+    the row (over the chip itself or over the buttons). The row is
+    right-aligned inside the overlay, so it only grows to the left: the area
+    under the cursor never disappears, which keeps the reveal from
+    flickering. The reveal follows the actual cursor position instead of
+    raw Enter/Leave events, because those also fire when the pointer moves
+    between the row and its child widgets."""
+
+    def __init__(self, on_resize, parent=None):
+        super().__init__(parent)
+        self._on_resize = on_resize
+        self._buttons = []
+        self._revealed = False
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+        self._layout = layout
+        self.setMouseTracking(True)
+
+    def add_chip(self, chip, down, up):
+        """Lay out ``[down] chip [up]``, hiding both score buttons."""
+        self._layout.addWidget(down)
+        self._layout.addWidget(chip)
+        self._layout.addWidget(up)
+        self._buttons.extend((down, up))
+        for button in (down, up):
+            button.setVisible(False)
+            button.installEventFilter(self)
+        chip.installEventFilter(self)
+
+    def add_widget(self, widget):
+        self._layout.addWidget(widget)
+
+    def set_spacing_for_chips(self, spacing):
+        """Spacing between the chips of a grid row (default 2 px)."""
+        self._layout.setSpacing(spacing)
+
+    def set_revealed(self, revealed):
+        """Show/hide the score buttons (also the test hook)."""
+        if revealed == self._revealed:
+            return
+        self._revealed = revealed
+        for button in self._buttons:
+            button.setVisible(revealed)
+        if self._on_resize is not None:
+            self._on_resize()
+
+    def eventFilter(self, obj, event):
+        if event.type() in (QEvent.Enter, QEvent.Leave, QEvent.MouseMove):
+            self._update_from_cursor()
+        return False
+
+    def enterEvent(self, event):
+        self._update_from_cursor()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._update_from_cursor()
+        super().leaveEvent(event)
+
+    def _update_from_cursor(self):
+        self.set_revealed(self.rect().contains(self.mapFromGlobal(QCursor.pos())))
+
 
 class MainWindow(QMainWindow):
     def __init__(self, folder, settings: Settings, initial_file=None):
@@ -1056,27 +1126,46 @@ class MainWindow(QMainWindow):
 
         self._add_whole_file_rows(whole)
 
-        plus_above = QLabel("+", self.timestamp_tags_widget)
-        plus_above.setStyleSheet(styles.TS_MORE)
-        plus_above.setAlignment(Qt.AlignCenter)
-        plus_above.setVisible(hidden_before)
-        self.timestamp_tags_layout.addWidget(plus_above, 0, Qt.AlignRight)
+        self._add_more_marker(hidden_before)
 
         for name, ts in visible:
-            row, button = self._make_score_chip(name, self._tag_score(name, ts), ts)
+            row = self._hover_row()
+            button = self._make_score_chip(row, name, self._tag_score(name, ts), ts)
             self.timestamp_tags_layout.addWidget(row, 0, Qt.AlignRight)
             self._timestamp_tag_buttons.append(
                 (int(ts), button, not self._tag_score_allowed(name, ts))
             )
 
-        plus_below = QLabel("+", self.timestamp_tags_widget)
-        plus_below.setStyleSheet(styles.TS_MORE)
-        plus_below.setAlignment(Qt.AlignCenter)
-        plus_below.setVisible(hidden_after)
-        self.timestamp_tags_layout.addWidget(plus_below, 0, Qt.AlignRight)
+        self._add_more_marker(hidden_after)
 
         self.timestamp_tags_widget.adjustSize()
         self.timestamp_tags_widget.show()
+
+    def _add_more_marker(self, visible):
+        """Add the "..." row that means "more timestamp tags are hidden on
+        that side".
+
+        Unlike a right-aligned chip it does not touch the right edge: it is
+        shifted inwards by roughly five characters, so it reads as an
+        indicator rather than as part of the last chip."""
+        marker = QLabel("...", self.timestamp_tags_widget)
+        marker.setStyleSheet(styles.TS_MORE)
+        marker.setAlignment(Qt.AlignCenter)
+        row = QWidget(self.timestamp_tags_widget)
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(marker)
+        layout.addSpacing(self._more_marker_indent())
+        row.setVisible(visible)
+        self.timestamp_tags_layout.addWidget(row, 0, Qt.AlignRight)
+        return row
+
+    def _more_marker_indent(self):
+        """Distance of the "..." marker from the right edge - about five
+        characters of the overlay font."""
+        metrics = QFontMetrics(self.timestamp_tags_widget.font())
+        return max(metrics.horizontalAdvance("0") * 5, 5)
 
     def _add_whole_file_rows(self, whole):
         """Add the whole-file tags above the timestamp chips.
@@ -1091,29 +1180,28 @@ class MainWindow(QMainWindow):
         shown = whole[:per_row * max_rows]
         hidden = len(whole) - len(shown)
 
-        row_layout = None
+        row = None
         for index, (name, score) in enumerate(shown):
             if index % per_row == 0:
-                row_widget = QWidget(self.timestamp_tags_widget)
-                row_layout = QHBoxLayout(row_widget)
-                row_layout.setContentsMargins(0, 0, 0, 0)
-                row_layout.setSpacing(4)
-                self.timestamp_tags_layout.addWidget(row_widget, 0, Qt.AlignRight)
-            chip_row, _button = self._make_score_chip(name, score, None)
-            row_layout.addWidget(chip_row)
+                row = self._hover_row()
+                row.set_spacing_for_chips(4)
+                self.timestamp_tags_layout.addWidget(row, 0, Qt.AlignRight)
+            self._make_score_chip(row, name, score, None)
 
-        if hidden and row_layout is not None:
+        if hidden and row is not None:
             more = QLabel(f"+{hidden}", self.timestamp_tags_widget)
             more.setStyleSheet(styles.TS_MORE)
             more.setAlignment(Qt.AlignCenter)
-            row_layout.addWidget(more)
+            row.add_widget(more)
 
-    def _make_score_chip(self, name, score, timestamp_sec):
-        """One tag chip with its "+"/"-" score buttons.
+    def _make_score_chip(self, row, name, score, timestamp_sec):
+        """Add one tag chip - with its "+"/"-" score buttons - to `row`
+        (a _HoverScoreRow) and return the chip button.
 
         ``timestamp_sec`` is None for a whole-file tag: clicking its name
         does nothing (there is no moment to seek to), while a timestamp chip
-        seeks to its second on press."""
+        seeks to its second on press. The score buttons stay hidden until
+        the pointer is over the row."""
         if timestamp_sec is None:
             text = tr(
                 "main_window.whole_file_tag_button_scored" if score
@@ -1130,20 +1218,14 @@ class MainWindow(QMainWindow):
                 score=score,
             )
 
-        # One chip row: [ - ] Tag(2) [ + ]
-        row = QWidget(self.timestamp_tags_widget)
-        row_layout = QHBoxLayout(row)
-        row_layout.setContentsMargins(0, 0, 0, 0)
-        row_layout.setSpacing(2)
-
         down = QPushButton("\u2212", row)      # −
-        down.setStyleSheet(styles.SCORE_BUTTON)
+        down.setStyleSheet(styles.SCORE_BUTTON_LARGE)
+        down.setFixedSize(26, 26)
         down.setCursor(Qt.PointingHandCursor)
         down.setToolTip(tr("main_window.tag_score_down_tooltip"))
         down.clicked.connect(
             lambda _checked=False, n=name, t=timestamp_sec: self._change_tag_score(n, t, -1)
         )
-        row_layout.addWidget(down)
 
         button = QPushButton(text, row)
         self._set_timestamp_tag_button_active(
@@ -1157,18 +1239,50 @@ class MainWindow(QMainWindow):
             button.pressed.connect(
                 lambda timestamp=timestamp_sec: self.video_viewer.go_to_timestamp(timestamp)
             )
-        row_layout.addWidget(button)
 
         up = QPushButton("+", row)
-        up.setStyleSheet(styles.SCORE_BUTTON)
+        up.setStyleSheet(styles.SCORE_BUTTON_LARGE)
+        up.setFixedSize(26, 26)
         up.setCursor(Qt.PointingHandCursor)
         up.setToolTip(tr("main_window.tag_score_up_tooltip"))
         up.clicked.connect(
             lambda _checked=False, n=name, t=timestamp_sec: self._change_tag_score(n, t, +1)
         )
-        row_layout.addWidget(up)
 
-        return row, button
+        row.add_chip(button, down, up)
+        return button
+
+    def _hover_row(self):
+        """A right-aligned row whose score buttons show on mouse-over."""
+        row = _HoverScoreRow(
+            on_resize=self._resize_tag_overlay,
+            parent=self.timestamp_tags_widget,
+        )
+        row.setMouseTracking(True)
+        return row
+
+    def _resize_tag_overlay(self):
+        """Keep the right-aligned overlay fitting its rows after a row grew or
+        shrank.
+
+        The layout chain caches the size hints: the container only shrinks
+        back once the row layouts themselves are activated, which plain
+        adjustSize() does not do."""
+        layout = self.timestamp_tags_widget.layout()
+        if layout is None:
+            return
+        for index in range(layout.count()):
+            widget = layout.itemAt(index).widget()
+            inner = widget.layout() if widget is not None else None
+            if inner is not None:
+                inner.invalidate()
+                inner.activate()
+        layout.invalidate()
+        layout.activate()
+        # Not clamped to the window: a very wide row extends past the right
+        # edge instead of losing its "-" button on the left side.
+        self.timestamp_tags_widget.resize(self.timestamp_tags_widget.sizeHint())
+        self._position_overlays()
 
     def _positive_setting(self, key, default):
         """Read an integer setting that must be at least 1."""

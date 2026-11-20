@@ -18,10 +18,10 @@
   "main_window.file_info": "{filename} ({x}/{y})",
   "main_window.file_info_selected": "{filename} ({x}/{y} - zaznaczonych)",
   "main_window.file_info_tag": "{filename} ({x}/{y} -tag:{tag})",
-  "main_window.timestamp_tag_button": "{name}@{time}",
-  "main_window.timestamp_tag_button_scored": "{name}({score})@{time}",
+  "main_window.timestamp_tag_button": "{name} | {time}",
+  "main_window.timestamp_tag_button_scored": "{name} | {score} | {time}",
   "main_window.whole_file_tag_button": "{name}",
-  "main_window.whole_file_tag_button_scored": "{name}({score})",
+  "main_window.whole_file_tag_button_scored": "{name} | {score}",
   "main_window.tag_score_up_tooltip": "Zwiększ ocenę tagu o 1",
   "main_window.tag_score_down_tooltip": "Zmniejsz ocenę tagu o 1",
 

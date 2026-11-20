@@ -250,6 +250,19 @@ SCORE_BUTTON = " ".join([
     f"QPushButton:disabled {{ color: {COLOR_TEXT_DISABLED}; }}",
 ])
 
+# The "-"/"+" score buttons over the media are only revealed while the
+# pointer is over a tag row, so they can be considerably larger than the
+# inline version above (which is used inside the tag windows). They have no
+# background of their own: only the glyph shows over the media, with a
+# subtle tint while the pointer is directly on the button.
+SCORE_BUTTON_LARGE = " ".join([
+    f"QPushButton {{ color: {COLOR_TEXT}; background: transparent; "
+    f"font-size: {FONT_SIZE_MESSAGE}px; font-weight: bold; padding: 0px; }}",
+    f"QPushButton:hover {{ background-color: {COLOR_ACCENT_TRANSLUCENT}; "
+    "border-radius: 5px; }",
+    f"QPushButton:disabled {{ color: {COLOR_TEXT_DISABLED}; }}",
+])
+
 # Small "+" marker shown above/below the timestamp-tag stack when tags
 # exist that are hidden (don't fit in the visible window).
 TS_MORE = (
